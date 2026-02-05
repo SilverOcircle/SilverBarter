@@ -1,0 +1,1281 @@
+// SilverBarter Haupt-Plugin (Server + Client vereint)
+class PluginSilverTrader extends PluginBase
+{
+	// Werkzeug-Klassen fuer Kategorie-Filter (Client + Server)
+	static ref array<string> TOOL_CLASSES;
+
+	// Client-Seite
+	ref SilverTraderMenu m_traderMenu;
+
+	// Server-Seite
+	ref SilverBarterConfig m_config;
+	ref map<int, TraderPoint> m_traderPoints;
+	ref map<int, ref SilverTrader_ServerConfig> m_traderCache;
+	ref map<int, ref SilverTrader_Data> m_traderData;
+	ref set<int> m_dirtyTraders;
+	float m_updateTimer = 0;
+	float m_saveTimer = 0;
+	const float SAVE_INTERVAL = 300.0; // Alle 5 Minuten speichern
+
+	private const string DATA_FOLDER = "$profile:\\SilverBarter\\TraderData\\";
+
+	override void OnInit()
+	{
+		// Werkzeug-Klassen initialisieren (Client + Server)
+		if (!TOOL_CLASSES)
+		{
+			TOOL_CLASSES = new array<string>;
+			TOOL_CLASSES.Insert("Hatchet");
+			TOOL_CLASSES.Insert("Sickle");
+			TOOL_CLASSES.Insert("Blowtorch");
+			TOOL_CLASSES.Insert("Whetstone");
+			TOOL_CLASSES.Insert("ElectronicRepairKit");
+			TOOL_CLASSES.Insert("TireRepairKit");
+			TOOL_CLASSES.Insert("LugWrench");
+			TOOL_CLASSES.Insert("PipeWrench");
+			TOOL_CLASSES.Insert("Screwdriver");
+			TOOL_CLASSES.Insert("Hacksaw");
+			TOOL_CLASSES.Insert("HandSaw");
+			TOOL_CLASSES.Insert("Pliers");
+			TOOL_CLASSES.Insert("Hammer");
+			TOOL_CLASSES.Insert("CanOpener");
+			TOOL_CLASSES.Insert("SewingKit");
+			TOOL_CLASSES.Insert("LeatherSewingKit");
+			TOOL_CLASSES.Insert("Lockpick");
+		}
+
+		// RPC-Handler registrieren (Client + Server)
+		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_OPEN_TRADE_MENU, this, "RpcRequestOpen");
+		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ACTION_TRADER, this, "RpcHandleTraderAction");
+		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU, this, "RpcRequestTraderMenuClose");
+
+		// Server-Initialisierung
+		if (GetGame().IsServer())
+		{
+			m_traderPoints = new map<int, TraderPoint>;
+			m_traderCache = new map<int, ref SilverTrader_ServerConfig>;
+			m_traderData = new map<int, ref SilverTrader_Data>;
+			m_dirtyTraders = new set<int>;
+
+			m_config = GetSilverBarterConfig();
+		}
+	}
+
+	// ========== CLIENT-SEITE ==========
+
+	void CloseTraderMenu()
+	{
+		if (m_traderMenu && m_traderMenu.m_active)
+		{
+			m_traderMenu.m_active = false;
+		}
+	}
+
+	// Client: RPC empfangen - Menu oeffnen
+	void RpcRequestOpen(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		if (!GetGame().IsClient())
+			return;
+
+		if (m_traderMenu && m_traderMenu.m_active)
+		{
+			m_traderMenu.m_active = false;
+		}
+
+		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
+		if (!player)
+			return;
+
+		if (g_Game.GetUIManager().GetMenu() != null)
+			return;
+
+		// Daten einzeln lesen
+		SilverTrader_Info traderInfo = new SilverTrader_Info();
+		SilverTrader_Data traderData = new SilverTrader_Data();
+
+		if (!ctx.Read(traderInfo.m_traderId)) return;
+		if (!ctx.Read(traderInfo.m_position)) return;
+		if (!ctx.Read(traderInfo.m_storageMaxSize)) return;
+		if (!ctx.Read(traderInfo.m_storageCommission)) return;
+		if (!ctx.Read(traderInfo.m_dumpingByAmountAlgorithm)) return;
+		if (!ctx.Read(traderInfo.m_dumpingByAmountModifier)) return;
+		if (!ctx.Read(traderInfo.m_dumpingByBadQuality)) return;
+		if (!ctx.Read(traderInfo.m_sellMaxQuantityPercent)) return;
+		if (!ctx.Read(traderInfo.m_buyMaxQuantityPercent)) return;
+
+		// Filter lesen
+		int buyFilterCount;
+		if (!ctx.Read(buyFilterCount)) return;
+		traderInfo.m_buyFilter = new array<string>;
+		for (int i = 0; i < buyFilterCount; i++)
+		{
+			string bf;
+			if (!ctx.Read(bf)) return;
+			traderInfo.m_buyFilter.Insert(bf);
+		}
+
+		int sellFilterCount;
+		if (!ctx.Read(sellFilterCount)) return;
+		traderInfo.m_sellFilter = new array<string>;
+		for (int j = 0; j < sellFilterCount; j++)
+		{
+			string sf;
+			if (!ctx.Read(sf)) return;
+			traderInfo.m_sellFilter.Insert(sf);
+		}
+
+		// Commission-Overrides lesen
+		int overrideCount;
+		if (!ctx.Read(overrideCount)) return;
+		traderInfo.m_commissionOverrides = new array<ref SilverCommissionOverride>;
+		for (int ov = 0; ov < overrideCount; ov++)
+		{
+			string ovClass;
+			float ovComm;
+			if (!ctx.Read(ovClass)) return;
+			if (!ctx.Read(ovComm)) return;
+			SilverCommissionOverride ovEntry = new SilverCommissionOverride();
+			ovEntry.classname = ovClass;
+			ovEntry.commission = ovComm;
+			traderInfo.m_commissionOverrides.Insert(ovEntry);
+		}
+
+		// Items lesen
+		int itemCount;
+		if (!ctx.Read(itemCount)) return;
+		traderData.m_items = new map<string, float>;
+		for (int k = 0; k < itemCount; k++)
+		{
+			string itemClass;
+			float itemQty;
+			if (!ctx.Read(itemClass)) return;
+			if (!ctx.Read(itemQty)) return;
+			traderData.m_items.Insert(itemClass, itemQty);
+		}
+
+		m_traderMenu = new SilverTraderMenu;
+		m_traderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData);
+		g_Game.GetUIManager().ShowScriptedMenu(m_traderMenu, null);
+	}
+
+	// Client: RPC empfangen - Trade-Antwort
+	void RpcHandleTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		// Server-Handler
+		if (GetGame().IsServer())
+		{
+			RpcRequestTraderAction(ctx, sender);
+			return;
+		}
+
+		// Client-Handler: Update Trader-Daten nach Trade
+		bool success;
+		if (!ctx.Read(success))
+			return;
+
+		if (!success)
+			return;
+
+		// Items einzeln lesen
+		int itemCount;
+		if (!ctx.Read(itemCount))
+			return;
+
+		SilverTrader_Data newData = new SilverTrader_Data();
+		for (int i = 0; i < itemCount; i++)
+		{
+			string itemClass;
+			float itemQty;
+			if (!ctx.Read(itemClass) || !ctx.Read(itemQty))
+				return;
+			newData.m_items.Insert(itemClass, itemQty);
+		}
+
+		if (m_traderMenu && m_traderMenu.m_active)
+		{
+			m_traderMenu.UpdateMetadata(newData);
+		}
+	}
+
+	// ========== SERVER-SEITE ==========
+
+	void InitializeTraders()
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		if (!m_config || !m_config.m_traders)
+		{
+			Print("[SilverBarter] ERROR: Config nicht geladen!");
+			return;
+		}
+
+		// Data-Ordner erstellen
+		if (!FileExist(DATA_FOLDER))
+		{
+			MakeDirectory(DATA_FOLDER);
+		}
+
+		foreach (SilverTrader_ServerConfig trader : m_config.m_traders)
+		{
+			SpawnTrader(trader);
+		}
+
+		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
+	}
+
+	private void SpawnTrader(SilverTrader_ServerConfig trader)
+	{
+		if (!trader || trader.m_traderId < 0)
+		{
+			Print("[SilverBarter] ERROR: Trader-Config ungueltig.");
+			return;
+		}
+
+		// Trader-Daten aus JSON laden oder Default-Items verwenden
+		string dataPath = DATA_FOLDER + "trader_" + trader.m_traderId.ToString() + ".json";
+		SilverTrader_Data traderData = new SilverTrader_Data();
+
+		if (FileExist(dataPath))
+		{
+			traderData.LoadFromJson(dataPath);
+		}
+		else if (trader.m_defaultItems && trader.m_defaultItems.Count() > 0)
+		{
+			// Default-Items laden
+			traderData.m_items = new map<string, float>;
+			foreach (SilverTrader_ItemEntry defaultItem : trader.m_defaultItems)
+			{
+				if (defaultItem)
+				{
+					traderData.m_items.Insert(defaultItem.classname, defaultItem.quantity);
+				}
+			}
+			traderData.SaveToJson(dataPath);
+			DebugLog("Default-Items fuer Trader " + trader.m_traderId.ToString() + " geladen.");
+		}
+
+		// Limitierte Items bei jedem Restart auf maxQuantity zuruecksetzen
+		if (trader.m_limitedItems && trader.m_limitedItems.Count() > 0)
+		{
+			bool limitedChanged = false;
+			foreach (SilverTrader_LimitedItem limitedItem : trader.m_limitedItems)
+			{
+				if (limitedItem && limitedItem.classname != "")
+				{
+					if (traderData.m_items.Contains(limitedItem.classname))
+					{
+						traderData.m_items.Set(limitedItem.classname, limitedItem.maxQuantity);
+					}
+					else
+					{
+						traderData.m_items.Insert(limitedItem.classname, limitedItem.maxQuantity);
+					}
+					limitedChanged = true;
+				}
+			}
+			if (limitedChanged)
+			{
+				traderData.SaveToJson(dataPath);
+				DebugLog("Limitierte Items fuer Trader " + trader.m_traderId.ToString() + " zurueckgesetzt.");
+			}
+		}
+
+		m_traderData.Insert(trader.m_traderId, traderData);
+
+		// Trader-NPC spawnen
+		Object traderObj = GetGame().CreateObject(trader.m_classname, trader.m_position);
+		if (!traderObj)
+		{
+			Print("[SilverBarter] ERROR: Konnte Trader-NPC nicht spawnen: " + trader.m_classname);
+			return;
+		}
+
+		traderObj.SetAllowDamage(false);
+		traderObj.SetPosition(trader.m_position);
+		traderObj.SetOrientation(Vector(trader.m_rotation, 0, 0));
+
+		// Attachments hinzufuegen
+		EntityAI traderEntity;
+		if (EntityAI.CastTo(traderEntity, traderObj) && trader.m_attachments)
+		{
+			foreach (string attachment : trader.m_attachments)
+			{
+				traderEntity.GetInventory().CreateInInventory(attachment);
+			}
+		}
+
+		// TraderPoint erstellen (fuer Interaktion)
+		TraderPoint traderPoint = TraderPoint.Cast(GetGame().CreateObject("TraderPoint", trader.m_position));
+		if (traderPoint)
+		{
+			traderPoint.SetAllowDamage(false);
+			traderPoint.SetPosition(trader.m_position);
+			traderPoint.SetOrientation(Vector(trader.m_rotation, 0, 0));
+			traderPoint.InitTraderPoint(trader.m_traderId, traderObj);
+		}
+
+		m_traderPoints.Insert(trader.m_traderId, traderPoint);
+		m_traderCache.Insert(trader.m_traderId, trader);
+
+		DebugLog("Trader " + trader.m_traderId.ToString() + " gespawnt.");
+	}
+
+	void SendTraderMenuOpen(PlayerBase player, int traderId)
+	{
+
+		if (!GetGame().IsServer())
+			return;
+
+		if (!player || !player.GetIdentity())
+			return;
+
+		SilverTrader_ServerConfig trader;
+		if (!m_traderCache.Find(traderId, trader))
+			return;
+
+		TraderPoint traderPoint;
+		if (!m_traderPoints.Find(traderId, traderPoint))
+			return;
+
+		SilverTrader_Data traderData;
+		if (!m_traderData.Find(traderId, traderData))
+			return;
+
+		// RPC direkt senden mit einzelnen Werten (komplexe Objekte nicht serialisierbar)
+		ScriptRPC rpc = new ScriptRPC();
+		rpc.Write(SilverRPC.SILVERRPC_OPEN_TRADE_MENU);
+
+		// Trader-Info einzeln schreiben
+		rpc.Write(trader.m_traderId);
+		rpc.Write(trader.m_position);
+		rpc.Write(trader.m_storageMaxSize);
+		rpc.Write(trader.m_storageCommission);
+		rpc.Write(trader.m_dumpingByAmountAlgorithm);
+		rpc.Write(trader.m_dumpingByAmountModifier);
+		rpc.Write(trader.m_dumpingByBadQuality);
+		rpc.Write(trader.m_sellMaxQuantityPercent);
+		rpc.Write(trader.m_buyMaxQuantityPercent);
+
+		// Filter als String-Arrays (mit Null-Check)
+		int buyFilterCount = 0;
+		if (trader.m_buyFilter)
+		{
+			buyFilterCount = trader.m_buyFilter.Count();
+		}
+		rpc.Write(buyFilterCount);
+		for (int i = 0; i < buyFilterCount; i++)
+		{
+			rpc.Write(trader.m_buyFilter.Get(i));
+		}
+
+		int sellFilterCount = 0;
+		if (trader.m_sellFilter)
+		{
+			sellFilterCount = trader.m_sellFilter.Count();
+		}
+		rpc.Write(sellFilterCount);
+		for (int j = 0; j < sellFilterCount; j++)
+		{
+			rpc.Write(trader.m_sellFilter.Get(j));
+		}
+
+		// Commission-Overrides
+		int overrideCount = 0;
+		if (trader.m_commissionOverrides)
+		{
+			overrideCount = trader.m_commissionOverrides.Count();
+		}
+		rpc.Write(overrideCount);
+		for (int ov = 0; ov < overrideCount; ov++)
+		{
+			rpc.Write(trader.m_commissionOverrides.Get(ov).classname);
+			rpc.Write(trader.m_commissionOverrides.Get(ov).commission);
+		}
+
+		// Trader-Data (Items) als Key-Value Paare
+		int itemCount = traderData.m_items.Count();
+		rpc.Write(itemCount);
+		for (int k = 0; k < itemCount; k++)
+		{
+			rpc.Write(traderData.m_items.GetKey(k));
+			rpc.Write(traderData.m_items.GetElement(k));
+		}
+
+		rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true, player.GetIdentity());
+		DebugLog("Menu-RPC gesendet an " + player.GetIdentity().GetName());
+	}
+
+	void RpcRequestTraderMenuClose(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		int traderId;
+		if (!ctx.Read(traderId))
+		{
+			Print("[SilverBarter] ERROR: Close traderId lesen fehlgeschlagen");
+			return;
+		}
+
+	}
+
+	void RpcRequestTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		PlayerBase player = GetPlayerByIdentity(sender);
+		if (!player)
+			return;
+
+		DebugLog("Trade-Request von " + sender.GetName());
+
+		// Daten einzeln lesen
+		int traderId;
+		if (!ctx.Read(traderId))
+		{
+			Print("[SilverBarter] ERROR: traderId lesen fehlgeschlagen");
+			return;
+		}
+
+		// Sell-Items als NetworkIDs lesen
+		int sellCount;
+		if (!ctx.Read(sellCount))
+		{
+			Print("[SilverBarter] ERROR: sellCount lesen fehlgeschlagen");
+			return;
+		}
+		if (sellCount < 0 || sellCount > 100)
+		{
+			Print("[SilverBarter] ERROR: sellCount ausserhalb Limit: " + sellCount.ToString());
+			return;
+		}
+
+		array<ItemBase> sellItems = new array<ItemBase>;
+		for (int s = 0; s < sellCount; s++)
+		{
+			int lowBits, highBits;
+			if (!ctx.Read(lowBits)) return;
+			if (!ctx.Read(highBits)) return;
+
+			Object obj = GetGame().GetObjectByNetworkId(lowBits, highBits);
+			ItemBase item = ItemBase.Cast(obj);
+			if (item && sellItems.Find(item) == -1)
+			{
+				sellItems.Insert(item);
+			}
+		}
+
+		// Buy-Items lesen
+		int buyCount;
+		if (!ctx.Read(buyCount))
+		{
+			Print("[SilverBarter] ERROR: buyCount lesen fehlgeschlagen");
+			return;
+		}
+		if (buyCount < 0 || buyCount > 10)
+		{
+			Print("[SilverBarter] ERROR: buyCount ausserhalb Limit: " + buyCount.ToString());
+			return;
+		}
+
+		map<string, float> buyItems = new map<string, float>;
+		for (int b = 0; b < buyCount; b++)
+		{
+			string buyClass;
+			float buyQty;
+			if (!ctx.Read(buyClass)) return;
+			if (!ctx.Read(buyQty)) return;
+			if (buyQty > 50)
+				buyQty = 50; // Cap gegen Spawn-Loop-Abuse
+			if (buyQty > 0)
+			{
+				buyItems.Insert(buyClass, buyQty);
+			}
+		}
+
+		DebugLog("Trade: " + sellItems.Count().ToString() + " verkaufen, " + buyItems.Count().ToString() + " kaufen");
+
+		SilverTrader_ServerConfig traderInfo;
+		if (!m_traderCache.Find(traderId, traderInfo))
+			return;
+
+		SilverTrader_Data traderData;
+		if (!m_traderData.Find(traderId, traderData))
+			return;
+
+		// Distanz-Check (max 5m zum Trader)
+		float dist = vector.Distance(player.GetPosition(), traderInfo.m_position);
+		if (dist > 5.0)
+		{
+			DebugLog("Trade abgelehnt: Spieler zu weit entfernt (" + dist.ToString() + "m)");
+			return;
+		}
+
+		// Server-seitige Validierung
+		int resultPrice = 0;
+
+		// Verkaufs-Items validieren und Preis berechnen
+		foreach (ItemBase sellItem1 : sellItems)
+		{
+			if (!sellItem1)
+				continue;
+
+			// Ownership-Check
+			if (!IsItemOwnedByPlayer(sellItem1, player))
+				continue;
+
+			if (CanSellItem(traderInfo, sellItem1))
+			{
+				resultPrice = resultPrice + CalculateSellPrice(traderInfo, traderData, sellItem1);
+			}
+		}
+
+		// Kauf-Items validieren und Preis berechnen
+		foreach (string buyClassname1, float buyQuantity1 : buyItems)
+		{
+			if (CanBuyItem(traderInfo, buyClassname1))
+			{
+				resultPrice = resultPrice - CalculateBuyPrice(traderInfo, traderData, buyClassname1, buyQuantity1);
+			}
+		}
+
+		// Balance-Check (kein negativer Trade ohne Admin)
+		if (resultPrice < 0)
+		{
+			DebugLog("Trade abgelehnt: Negativer Preis fuer " + sender.GetName());
+			return;
+		}
+
+		// Barter-Regel: Verkauf nur mit Gegenkauf erlaubt (kein einseitiges Abgeben)
+		if (sellItems.Count() > 0 && buyItems.Count() == 0)
+		{
+			DebugLog("Trade abgelehnt: Verkauf ohne Gegenkauf von " + sender.GetName());
+			return;
+		}
+
+		// Trade ausfuehren
+		// Verkaufs-Items verarbeiten
+		foreach (ItemBase sellItem2 : sellItems)
+		{
+			if (!sellItem2)
+				continue;
+
+			if (!IsItemOwnedByPlayer(sellItem2, player))
+				continue;
+
+			if (!CanSellItem(traderInfo, sellItem2))
+				continue;
+
+			string classname = sellItem2.GetType();
+			float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, classname);
+			float itemQuantity = CalculateItemQuantity01(sellItem2);
+			float newValue = 0;
+
+			if (traderData.m_items.Contains(classname))
+			{
+				newValue = Math.Min(maxQuantity, traderData.m_items.Get(classname) + itemQuantity);
+				traderData.m_items.Set(classname, newValue);
+			}
+			else
+			{
+				newValue = Math.Min(maxQuantity, itemQuantity);
+				traderData.m_items.Set(classname, newValue);
+			}
+
+			DebugLog("Trader " + traderId.ToString() + " kauft: " + classname);
+		}
+
+		// Kauf-Items verarbeiten
+		foreach (string buyClassname2, float buyQuantity2 : buyItems)
+		{
+			if (!CanBuyItem(traderInfo, buyClassname2))
+				continue;
+
+			if (traderData.m_items.Contains(buyClassname2) && traderData.m_items.Get(buyClassname2) >= buyQuantity2)
+			{
+				float newValue2 = Math.Max(0, traderData.m_items.Get(buyClassname2) - buyQuantity2);
+				if (newValue2 == 0)
+				{
+					traderData.m_items.Remove(buyClassname2);
+				}
+				else
+				{
+					traderData.m_items.Set(buyClassname2, newValue2);
+				}
+
+				DebugLog("Trader " + traderId.ToString() + " verkauft: " + buyClassname2);
+			}
+		}
+
+		// Verkaufte Items loeschen
+		foreach (ItemBase sellItem3 : sellItems)
+		{
+			if (sellItem3 && IsItemOwnedByPlayer(sellItem3, player))
+			{
+				g_Game.ObjectDelete(sellItem3);
+			}
+		}
+
+		// Gekaufte Items spawnen
+		foreach (string buyClassname3, float buyQuantity3 : buyItems)
+		{
+			if (!CanBuyItem(traderInfo, buyClassname3))
+			{
+				DebugLog("SPAWN SKIP: CanBuyItem false fuer " + buyClassname3);
+				continue;
+			}
+
+			if (buyQuantity3 <= 0)
+			{
+				DebugLog("SPAWN SKIP: buyQuantity ist 0 fuer " + buyClassname3);
+				continue;
+			}
+
+			float calcQuantity = buyQuantity3;
+			while (calcQuantity > 0)
+			{
+				ItemBase buyEntity = null;
+				InventoryLocation invLoc = new InventoryLocation;
+				bool foundInvSlot = player.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname3, FindInventoryLocationType.ANY, invLoc);
+
+				if (foundInvSlot)
+				{
+					buyEntity = ItemBase.Cast(player.GetInventory().LocationCreateEntity(invLoc, buyClassname3, ECE_IN_INVENTORY, RF_DEFAULT));
+				}
+				else
+				{
+					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname3, player.GetPosition()));
+				}
+
+				if (buyEntity)
+				{
+					float spawnQuantity01 = Math.Clamp(calcQuantity, 0, 1);
+					Magazine buyMagazine;
+
+					if (buyEntity.IsInherited(Magazine))
+					{
+						Class.CastTo(buyMagazine, buyEntity);
+						if (buyEntity.IsInherited(Ammunition_Base))
+						{
+							buyMagazine.ServerSetAmmoCount((int)Math.Round(buyMagazine.GetAmmoMax() * spawnQuantity01));
+						}
+						else
+						{
+							buyMagazine.ServerSetAmmoCount(0);
+						}
+					}
+					else if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname3 + " liquidContainerType"))
+					{
+						buyEntity.SetQuantityNormalized(0);
+					}
+					else
+					{
+						buyEntity.SetQuantityNormalized(spawnQuantity01);
+					}
+
+					DebugLog("SPAWN OK: " + buyClassname3 + " (inv=" + foundInvSlot.ToString() + ", qty=" + spawnQuantity01.ToString() + ")");
+				}
+				else
+				{
+					Print("[SilverBarter] SPAWN FAILED: " + buyClassname3 + " konnte nicht erstellt werden (inv=" + foundInvSlot.ToString() + ")");
+					break;
+				}
+
+				calcQuantity = calcQuantity - 1;
+			}
+		}
+
+		// Trader als dirty markieren (wird im naechsten Save-Intervall gespeichert)
+		m_dirtyTraders.Insert(traderId);
+
+		// Antwort an Client senden (einzelne Felder serialisieren)
+		PlayerBase respPlayer = GetPlayerByIdentity(sender);
+		if (respPlayer)
+		{
+			ScriptRPC respRpc = new ScriptRPC();
+			respRpc.Write(SilverRPC.SILVERRPC_ACTION_TRADER);
+			respRpc.Write(true); // Erfolg-Flag
+
+			// Items einzeln schreiben
+			int respItemCount = 0;
+			if (traderData && traderData.m_items)
+				respItemCount = traderData.m_items.Count();
+
+			respRpc.Write(respItemCount);
+			if (traderData && traderData.m_items)
+			{
+				for (int ri = 0; ri < traderData.m_items.Count(); ri++)
+				{
+					respRpc.Write(traderData.m_items.GetKey(ri));
+					respRpc.Write(traderData.m_items.GetElement(ri));
+				}
+			}
+			respRpc.Send(respPlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true, sender);
+			DebugLog("Trade-Response gesendet mit " + respItemCount.ToString() + " Items");
+		}
+	}
+
+	void SaveTraderData(int traderId)
+	{
+		SilverTrader_Data traderData;
+		if (m_traderData.Find(traderId, traderData))
+		{
+			string dataPath = DATA_FOLDER + "trader_" + traderId.ToString() + ".json";
+			traderData.SaveToJson(dataPath);
+		}
+	}
+
+	void SaveDirtyTraderData()
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		if (!m_dirtyTraders || m_dirtyTraders.Count() == 0)
+			return;
+
+		foreach (int traderId : m_dirtyTraders)
+		{
+			SaveTraderData(traderId);
+		}
+
+		if (m_config && m_config.m_debugMode)
+		{
+			Print("[SilverBarter] " + m_dirtyTraders.Count().ToString() + " Trader-Daten gespeichert.");
+		}
+
+		m_dirtyTraders.Clear();
+	}
+
+	void SaveAllTraderData()
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		foreach (int traderId, SilverTrader_Data data : m_traderData)
+		{
+			SaveTraderData(traderId);
+		}
+
+		if (m_dirtyTraders)
+		{
+			m_dirtyTraders.Clear();
+		}
+
+		Print("[SilverBarter] Alle Trader-Daten gespeichert (Shutdown).");
+	}
+
+	private bool IsItemOwnedByPlayer(ItemBase item, PlayerBase player)
+	{
+		if (!item || !player)
+			return false;
+
+		EntityAI root = item.GetHierarchyRoot();
+		if (root == player)
+			return true;
+
+		return false;
+	}
+
+	private PlayerBase GetPlayerByIdentity(PlayerIdentity identity)
+	{
+		if (!identity)
+			return null;
+
+		int highBits, lowBits;
+		GetGame().GetPlayerNetworkIDByIdentityID(identity.GetPlayerId(), lowBits, highBits);
+		return PlayerBase.Cast(GetGame().GetObjectByNetworkId(lowBits, highBits));
+	}
+
+	override void OnUpdate(float delta_time)
+	{
+		if (!GetGame().IsServer())
+			return;
+
+		// Trader-Tick
+		m_updateTimer = m_updateTimer + delta_time;
+		if (m_updateTimer > 1.0)
+		{
+			m_updateTimer = 0;
+			foreach (int traderId, TraderPoint point : m_traderPoints)
+			{
+				if (point)
+				{
+					point.OnTick();
+				}
+			}
+		}
+
+		// Periodisches Speichern (nur dirty Trader)
+		m_saveTimer = m_saveTimer + delta_time;
+		if (m_saveTimer > SAVE_INTERVAL)
+		{
+			m_saveTimer = 0;
+			SaveDirtyTraderData();
+		}
+	}
+
+	override void OnDestroy()
+	{
+		// Beim Beenden alle Daten speichern
+		SaveAllTraderData();
+
+		if (m_traderPoints)
+		{
+			foreach (int id, TraderPoint obj : m_traderPoints)
+			{
+				if (obj)
+				{
+					g_Game.ObjectDelete(obj);
+				}
+			}
+			delete m_traderPoints;
+		}
+
+		if (m_traderCache)
+			delete m_traderCache;
+
+		if (m_traderData)
+			delete m_traderData;
+
+		if (m_dirtyTraders)
+			delete m_dirtyTraders;
+	}
+
+	// ========== BERECHNUNGS-FUNKTIONEN (Client + Server) ==========
+
+	bool HasOversizedSellItems(SilverTrader_Info traderInfo, SilverTrader_Data data, map<string, float> sellCounter)
+	{
+		foreach (string classname, float quantity : sellCounter)
+		{
+			if (quantity > CalculateSellMaxQuantity(traderInfo, classname))
+			{
+				return true;
+			}
+
+			if (data.m_items.Contains(classname))
+			{
+				float storedQuantity = data.m_items.Get(classname);
+				float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, classname);
+				if (storedQuantity + quantity > maxQuantity)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	int CalculateSellPrice(SilverTrader_Info trader, SilverTrader_Data data, ItemBase item)
+	{
+		if (!item)
+			return 0;
+
+		int healthlevel = item.GetHealthLevel();
+		if (healthlevel > GameConstants.STATE_WORN)
+			return 0;
+
+		string classname = item.GetType();
+		float traderTotalQuantity = 0;
+		if (data.m_items.Find(classname, traderTotalQuantity))
+		{
+			// Gefunden
+		}
+
+		float resultPrice = CalculateBuyPrice(trader, data, classname, 1);
+		float commission = trader.GetCommissionForItem(classname);
+		resultPrice = resultPrice - (commission * resultPrice);
+		resultPrice = resultPrice * CalculateItemQuantity01(item);
+
+		if (healthlevel == GameConstants.STATE_WORN)
+		{
+			resultPrice = resultPrice * trader.m_dumpingByBadQuality;
+		}
+
+		if (resultPrice < 0)
+			return 0;
+
+		return (int)Math.Floor(resultPrice);
+	}
+
+	int CalculateBuyPrice(SilverTrader_Info trader, SilverTrader_Data data, string classname, float quantity)
+	{
+		float totalQuantity = 0;
+		if (data.m_items.Contains(classname))
+		{
+			totalQuantity = data.m_items.Get(classname);
+		}
+
+		float itemMaxQuantity = CalculateTraderItemQuantityMax(trader, classname);
+		quantity = Math.Min(quantity, itemMaxQuantity);
+		totalQuantity = Math.Min(totalQuantity, itemMaxQuantity);
+
+		float resultPrice = CalculateDumping(trader.m_dumpingByAmountAlgorithm, trader.m_dumpingByAmountModifier, (int)totalQuantity, (int)itemMaxQuantity);
+		resultPrice = resultPrice * quantity * 1000;
+
+		if (resultPrice < 1)
+			return 1;
+
+		return (int)Math.Floor(resultPrice);
+	}
+
+	float CalculateTraderItemQuantityMax(SilverTrader_Info trader, string classname)
+	{
+		vector itemSize = "1 1 0";
+
+		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		{
+			itemSize = GetGame().ConfigGetVector(CFG_VEHICLESPATH + " " + classname + " itemSize");
+		}
+		else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		{
+			itemSize = GetGame().ConfigGetVector(CFG_MAGAZINESPATH + " " + classname + " itemSize");
+		}
+		else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		{
+			itemSize = GetGame().ConfigGetVector(CFG_WEAPONSPATH + " " + classname + " itemSize");
+		}
+
+		int itemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
+		return Math.Round(((float)trader.m_storageMaxSize) / itemCapacity);
+	}
+
+	float CalculateItemQuantity01(ItemBase item)
+	{
+		if (item.GetLiquidTypeInit() != 0)
+			return 1;
+
+		float item_quantity = item.GetQuantity();
+		int max_quantity = item.GetQuantityMax();
+
+		if (max_quantity > 0)
+		{
+			if (item.IsInherited(Ammunition_Base))
+			{
+				Magazine magazine_item;
+				Class.CastTo(magazine_item, item);
+				return (float)magazine_item.GetAmmoCount() / (float)magazine_item.GetAmmoMax();
+			}
+			else if (item.IsInherited(Magazine))
+			{
+				return 1;
+			}
+			else
+			{
+				return Math.Min(item_quantity, max_quantity) / (float)max_quantity;
+			}
+		}
+
+		return 1;
+	}
+
+	float CalculateSellMaxQuantity(SilverTrader_Info traderInfo, string classname)
+	{
+		float result = CalculateTraderItemQuantityMax(traderInfo, classname) * traderInfo.m_sellMaxQuantityPercent;
+		result = Math.Round(result);
+		if (result < 1)
+			result = 1;
+		return result;
+	}
+
+	float CalculateBuyMaxQuantity(SilverTrader_Info traderInfo, string classname)
+	{
+		float result = CalculateTraderItemQuantityMax(traderInfo, classname) * traderInfo.m_buyMaxQuantityPercent;
+		result = Math.Round(result);
+		if (result < 1)
+			result = 1;
+		return result;
+	}
+
+	float CalculateItemSelectedQuantityStep(string classname)
+	{
+		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
+			return 1;
+
+		int maxStackSize = 0;
+
+		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		{
+			maxStackSize = GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
+		}
+		else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		{
+			maxStackSize = GetGame().ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
+		}
+		else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		{
+			maxStackSize = GetGame().ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
+		}
+
+		if (maxStackSize > 0)
+		{
+			string stackedUnits = "";
+
+			if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+			{
+				stackedUnits = GetGame().ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
+			}
+			else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+			{
+				stackedUnits = GetGame().ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
+			}
+			else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+			{
+				stackedUnits = GetGame().ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
+			}
+
+			if (stackedUnits == "pc.")
+			{
+				return 1.0 / maxStackSize;
+			}
+			else if (GetGame().IsKindOf(classname, "Ammunition_Base"))
+			{
+				return 1.0 / maxStackSize;
+			}
+		}
+
+		return 1;
+	}
+
+	float CalculateDumping(string algorithm, float modifier, float value, float max)
+	{
+		return Math.Lerp(1, modifier, (value / max));
+	}
+
+	void DoBarter(int traderId, array<ItemBase> sellItems, map<string, float> buyItems)
+	{
+		if (sellItems.Count() == 0 && buyItems.Count() == 0)
+			return;
+
+		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
+		if (!player)
+			return;
+
+		// Erst valide Items zaehlen
+		int validSellCount = 0;
+		foreach (ItemBase countItem : sellItems)
+		{
+			if (countItem)
+				validSellCount++;
+		}
+
+		// RPC mit serialisierbaren Daten senden
+		ScriptRPC rpc = new ScriptRPC();
+		rpc.Write(SilverRPC.SILVERRPC_ACTION_TRADER);
+		rpc.Write(traderId);
+
+		// Sell-Items als NetworkIDs senden (nur valide)
+		rpc.Write(validSellCount);
+		foreach (ItemBase sellItem : sellItems)
+		{
+			if (!sellItem)
+				continue;
+
+			int lowBits, highBits;
+			sellItem.GetNetworkID(lowBits, highBits);
+			rpc.Write(lowBits);
+			rpc.Write(highBits);
+		}
+
+		// Buy-Items als Key/Value Paare
+		rpc.Write(buyItems.Count());
+		for (int i = 0; i < buyItems.Count(); i++)
+		{
+			rpc.Write(buyItems.GetKey(i));
+			rpc.Write(buyItems.GetElement(i));
+		}
+
+		rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true);
+	}
+
+	bool FilterByCategories(array<string> categories, array<bool> enabledCategories, string classname)
+	{
+		TStringArray inventorySlots = new TStringArray;
+
+		if (GetGame().IsKindOf(classname, "Grenade_Base") || GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		{
+			return enabledCategories.Get(categories.Find("weapons"));
+		}
+
+		if (GetGame().IsKindOf(classname, "Ammunition_Base") || classname.IndexOf("AmmoBox") == 0)
+		{
+			return enabledCategories.Get(categories.Find("ammo"));
+		}
+
+		if (GetGame().IsKindOf(classname, "Magazine_Base"))
+		{
+			return enabledCategories.Get(categories.Find("magazines"));
+		}
+
+		// Werkzeuge aus statischem Array pruefen
+		if (TOOL_CLASSES)
+		{
+			foreach (string toolClass : TOOL_CLASSES)
+			{
+				if (GetGame().IsKindOf(classname, toolClass))
+				{
+					return enabledCategories.Get(categories.Find("tools"));
+				}
+			}
+		}
+
+		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " inventorySlot"))
+		{
+			inventorySlots.Clear();
+			GetGame().ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " inventorySlot", inventorySlots);
+
+			foreach (string inventorySlot : inventorySlots)
+			{
+				inventorySlot.ToLower();
+				if (inventorySlot.IndexOf("weapon") == 0)
+				{
+					return enabledCategories.Get(categories.Find("attachments"));
+				}
+				else if (inventorySlot == "melee")
+				{
+					return enabledCategories.Get(categories.Find("tools"));
+				}
+			}
+		}
+
+		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " attachments"))
+		{
+			inventorySlots.Clear();
+			GetGame().ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " attachments", inventorySlots);
+
+			foreach (string attachment : inventorySlots)
+			{
+				attachment.ToLower();
+				if (attachment.IndexOf("batteryd") == 0)
+				{
+					return enabledCategories.Get(categories.Find("electronic"));
+				}
+			}
+		}
+
+		if (GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " medicalItem") == 1)
+		{
+			return enabledCategories.Get(categories.Find("medical"));
+		}
+
+		if (GetGame().IsKindOf(classname, "Edible_Base"))
+		{
+			return enabledCategories.Get(categories.Find("food"));
+		}
+
+		if (GetGame().IsKindOf(classname, "Clothing_Base"))
+		{
+			return enabledCategories.Get(categories.Find("clothing"));
+		}
+
+		if (GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
+		{
+			return enabledCategories.Get(categories.Find("vehicle_parts"));
+		}
+
+		// Skills/Upgrades (ZenSkills Items)
+		if (classname.IndexOf("ZenSkills_") == 0)
+		{
+			return enabledCategories.Get(categories.Find("base_building"));
+		}
+
+		return enabledCategories.Get(categories.Find("other"));
+	}
+
+	bool CanSellItem(SilverTrader_Info traderInfo, ItemBase item)
+	{
+		if (item.IsInherited(FireplaceBase))
+			return false;
+
+		if (item.GetHealthLevel() > GameConstants.STATE_WORN)
+			return false;
+
+		if (item.IsInherited(Edible_Base))
+		{
+			Edible_Base edibleBase = Edible_Base.Cast(item);
+
+			if (edibleBase.IsMeat())
+				return false;
+
+			if (edibleBase.GetFoodStage())
+			{
+				int foodStage = edibleBase.GetFoodStage().GetFoodStageType();
+				if (foodStage == FoodStageType.BAKED)
+					return false;
+				if (foodStage == FoodStageType.BOILED)
+					return false;
+				if (foodStage == FoodStageType.DRIED)
+					return false;
+				if (foodStage == FoodStageType.BURNED)
+					return false;
+				if (foodStage == FoodStageType.ROTTEN)
+					return false;
+			}
+
+			if (edibleBase.GetType().IndexOf("_Opened") != -1)
+				return false;
+
+			if (item.GetLiquidTypeInit() == 0 && edibleBase.GetQuantity() != edibleBase.GetQuantityMax())
+				return false;
+		}
+
+		bool filterResult = false;
+		string itemType = item.GetType();
+
+		foreach (string filter : traderInfo.m_sellFilter)
+		{
+			if (filter.IndexOf("!") == 0)
+			{
+				string classname = filter.Substring(1, filter.Length() - 1);
+				if (itemType == classname || GetGame().ObjectIsKindOf(item, classname))
+				{
+					filterResult = false;
+				}
+			}
+			else
+			{
+				if (itemType == filter || GetGame().ObjectIsKindOf(item, filter))
+				{
+					filterResult = true;
+				}
+			}
+		}
+
+		return filterResult;
+	}
+
+	bool CanBuyItem(SilverTrader_Info traderInfo, string itemClassname)
+	{
+		bool filterResult = false;
+		foreach (string filter : traderInfo.m_buyFilter)
+		{
+			if (filter.IndexOf("!") == 0)
+			{
+				string classname = filter.Substring(1, filter.Length() - 1);
+				if (itemClassname == classname || GetGame().IsKindOf(itemClassname, classname))
+				{
+					filterResult = false;
+				}
+			}
+			else
+			{
+				if (itemClassname == filter || GetGame().IsKindOf(itemClassname, filter))
+				{
+					filterResult = true;
+				}
+			}
+		}
+
+		return filterResult;
+	}
+
+	// Debug-Log Hilfsfunktion (nur ausgeben wenn debugMode aktiv)
+	void DebugLog(string message)
+	{
+		if (m_config && m_config.m_debugMode)
+		{
+			Print("[SilverBarter] " + message);
+		}
+	}
+};
