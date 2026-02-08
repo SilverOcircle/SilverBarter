@@ -30,7 +30,7 @@ class SilverBarterConfig
 
 	void Load()
 	{
-		if (!GetGame().IsDedicatedServer())
+		if (!g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -60,7 +60,7 @@ class SilverBarterConfig
 
 	void Save()
 	{
-		if (!GetGame().IsDedicatedServer())
+		if (!g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -426,11 +426,11 @@ class SilverTrader_Data
 
 	private bool IsValidClassname(string classname)
 	{
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
 			return true;
-		if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
 			return true;
-		if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 			return true;
 		return false;
 	}
@@ -500,7 +500,7 @@ class SilverTrader_Info
 			// Parent-Klasse pruefen (fuer Vererbung wie "Goldnugget_Base")
 			foreach (SilverCommissionOverride parentOverride : m_commissionOverrides)
 			{
-				if (parentOverride && GetGame().IsKindOf(classname, parentOverride.classname))
+				if (parentOverride && g_Game.IsKindOf(classname, parentOverride.classname))
 				{
 					return parentOverride.commission;
 				}

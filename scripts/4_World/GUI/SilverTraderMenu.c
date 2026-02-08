@@ -129,7 +129,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		int screenHeight;
 		GetScreenSize(screenWidth, screenHeight);
 
-		ref Widget itemSell;
+		Widget itemSell;
 		if (screenHeight > 1440)
 		{
 			itemSell = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemSell.layout");
@@ -147,12 +147,12 @@ class SilverTraderMenu extends UIScriptedMenu
 		itemSell.SetPos(SELL_ITEM_DEPTH_OFFSET * depth, (h + SELL_ITEM_HEIGHT_OFFSET) * index);
 		itemSell.SetSize(contentWidth, h);
 
-		ref ButtonWidget actionButton = ButtonWidget.Cast(itemSell.FindAnyWidget("ItemActionButton"));
+		ButtonWidget actionButton = ButtonWidget.Cast(itemSell.FindAnyWidget("ItemActionButton"));
 		actionButton.SetUserData(item);
 		actionButton.SetUserID(1001);
 		actionButton.GetParent().SetUserID(depth);
 
-		ref ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemSell.FindAnyWidget("ItemPreviewWidget"));
+		ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemSell.FindAnyWidget("ItemPreviewWidget"));
 		previewWidget.SetItem(item);
 		previewWidget.SetView(item.GetViewIndex());
 		previewWidget.SetModelPosition(Vector(0, 0, 1));
@@ -227,7 +227,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		int screenHeight;
 		GetScreenSize(screenWidth, screenHeight);
 
-		ref Widget itemBuy;
+		Widget itemBuy;
 		if (screenHeight > 1440)
 		{
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemBuy.layout");
@@ -252,10 +252,10 @@ class SilverTraderMenu extends UIScriptedMenu
 		actionBtnParam.m_maxBuyQuantity = Math.Min(pluginTrader.CalculateBuyMaxQuantity(m_traderInfo, classname), quantity);
 		actionBtnParam.m_selectedQuantity = Math.Min(1, actionBtnParam.m_maxBuyQuantity);
 
-		ref ButtonWidget actionButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("ItemActionButton"));
+		ButtonWidget actionButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("ItemActionButton"));
 		actionButton.SetUserID(2001);
 
-		ref ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemBuy.FindAnyWidget("ItemPreviewWidget"));
+		ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemBuy.FindAnyWidget("ItemPreviewWidget"));
 		previewWidget.SetItem(item);
 		previewWidget.SetView(item.GetViewIndex());
 		previewWidget.SetModelPosition(Vector(0, 0, 1));
@@ -270,10 +270,10 @@ class SilverTraderMenu extends UIScriptedMenu
 		UpdateItemInfoQuantity(itemBuy, pluginTrader, classname, quantity);
 		UpdateItemInfoSelectedQuantity(itemBuy, classname, actionBtnParam.m_selectedQuantity, actionBtnParam.m_maxBuyQuantity);
 
-		ref ButtonWidget minusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("MinusActionBtn"));
+		ButtonWidget minusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("MinusActionBtn"));
 		minusButton.SetUserID(3001);
 
-		ref ButtonWidget plusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("PlusActionBtn"));
+		ButtonWidget plusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("PlusActionBtn"));
 		plusButton.SetUserID(3002);
 
 		m_buyWidgetsCache.Insert(itemBuy);
@@ -316,8 +316,8 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		int blockedItemsCounter = 0;
 		float value = 0;
-		ref array<ItemBase> sellResult = new array<ItemBase>;
-		ref map<string, float> sellCounter = new map<string, float>;
+		array<ItemBase> sellResult = new array<ItemBase>;
+		map<string, float> sellCounter = new map<string, float>;
 
 		GetSelectedSellItems(sellResult);
 		foreach (ItemBase sellItem : sellResult)
@@ -346,7 +346,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 		delete sellResult;
 
-		ref map<string, float> buyResult = new map<string, float>;
+		map<string, float> buyResult = new map<string, float>;
 		GetSelectedBuyItems(buyResult);
 		foreach (string buyClassname, float buyQuantity : buyResult)
 		{
@@ -406,7 +406,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	{
 		foreach (Widget w : m_sellWidgetsCache)
 		{
-			ref Widget btn = w.FindAnyWidget("ItemActionButton");
+			Widget btn = w.FindAnyWidget("ItemActionButton");
 			if (btn.GetUserID() == 1002)
 			{
 				ItemBase item;
@@ -422,10 +422,10 @@ class SilverTraderMenu extends UIScriptedMenu
 	void GetSelectedBuyItems(map<string, float> result)
 	{
 		int index;
-		ref SilverTraderMenu_BuyData buyData;
+		SilverTraderMenu_BuyData buyData;
 		foreach (Widget w : m_buyWidgetsCache)
 		{
-			ref Widget btn = w.FindAnyWidget("ItemActionButton");
+			Widget btn = w.FindAnyWidget("ItemActionButton");
 			if (btn.GetUserID() == 2002)
 			{
 				index = w.GetUserID();
@@ -438,10 +438,10 @@ class SilverTraderMenu extends UIScriptedMenu
 	void InitializeFilter(Widget root, string name)
 	{
 		int id = m_filterData.Insert(name);
-		ref ButtonWidget btn = ButtonWidget.Cast(root.FindAnyWidget("FilterActionBtn" + id));
+		ButtonWidget btn = ButtonWidget.Cast(root.FindAnyWidget("FilterActionBtn" + id));
 		btn.SetUserID(5000 + id);
 
-		ref TextWidget btnText = TextWidget.Cast(btn.GetChildren());
+		TextWidget btnText = TextWidget.Cast(btn.GetChildren());
 		btnText.SetText("#silver_trader_filter_" + name);
 
 		if (m_filterMemory.Count() <= id)
@@ -590,7 +590,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void SelectSellItem(ButtonWidget btn, bool enable)
 	{
-		ref Widget back = btn.GetParent();
+		Widget back = btn.GetParent();
 		if (!back)
 			return;
 
@@ -605,9 +605,9 @@ class SilverTraderMenu extends UIScriptedMenu
 			{
 				while (index >= 0)
 				{
-					ref Widget prevItem = m_sellWidgetsCache.Get(index);
-					ref ButtonWidget prevBtn = ButtonWidget.Cast(prevItem.FindAnyWidget("ItemActionButton"));
-					ref Widget prevBack = prevBtn.GetParent();
+					Widget prevItem = m_sellWidgetsCache.Get(index);
+					ButtonWidget prevBtn = ButtonWidget.Cast(prevItem.FindAnyWidget("ItemActionButton"));
+					Widget prevBack = prevBtn.GetParent();
 
 					if (prevBack.GetUserID() < depth)
 					{
@@ -636,9 +636,9 @@ class SilverTraderMenu extends UIScriptedMenu
 			index = itemId + 1;
 			while (index < m_sellWidgetsCache.Count())
 			{
-				ref Widget nextItem = m_sellWidgetsCache.Get(index);
-				ref ButtonWidget nextBtn = ButtonWidget.Cast(nextItem.FindAnyWidget("ItemActionButton"));
-				ref Widget nextBack = nextBtn.GetParent();
+				Widget nextItem = m_sellWidgetsCache.Get(index);
+				ButtonWidget nextBtn = ButtonWidget.Cast(nextItem.FindAnyWidget("ItemActionButton"));
+				Widget nextBack = nextBtn.GetParent();
 
 				if (depth >= nextBack.GetUserID())
 				{
@@ -664,7 +664,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void SelectBuyItem(ButtonWidget btn, bool enable)
 	{
-		ref Widget back = btn.GetParent();
+		Widget back = btn.GetParent();
 		if (!back)
 			return;
 
@@ -684,7 +684,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void SwitchFilterItem(ButtonWidget btn)
 	{
-		ref Widget back = btn.GetParent();
+		Widget back = btn.GetParent();
 		if (!back)
 			return;
 
@@ -706,7 +706,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	{
 		m_filterMemory.Set(btn.GetUserID() - 5000, enable);
 
-		ref Widget back = btn.GetParent();
+		Widget back = btn.GetParent();
 		if (!back)
 			return;
 
@@ -728,13 +728,13 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (!pluginTrader)
 			return;
 
-		ref Widget mainWidget = btn.GetParent().GetParent().GetParent().GetParent();
+		Widget mainWidget = btn.GetParent().GetParent().GetParent().GetParent();
 		int id = mainWidget.GetUserID();
 
-		ref ButtonWidget mainButton = ButtonWidget.Cast(mainWidget.FindAnyWidget("ItemActionButton"));
+		ButtonWidget mainButton = ButtonWidget.Cast(mainWidget.FindAnyWidget("ItemActionButton"));
 		SelectBuyItem(mainButton, true);
 
-		ref SilverTraderMenu_BuyData mainParam = m_buyData.Get(id);
+		SilverTraderMenu_BuyData mainParam = m_buyData.Get(id);
 
 		float stepSize = pluginTrader.CalculateItemSelectedQuantityStep(mainParam.m_classname);
 		if (value < 0 && mainParam.m_selectedQuantity <= 1)
@@ -769,8 +769,8 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (!pluginTrader)
 			return;
 
-		ref map<string, float> buyItems = new map<string, float>;
-		ref array<ItemBase> sellItems = new array<ItemBase>;
+		map<string, float> buyItems = new map<string, float>;
+		array<ItemBase> sellItems = new array<ItemBase>;
 
 		GetSelectedSellItems(sellItems);
 		if (sellItems.Count() > 0)
@@ -1054,7 +1054,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	private void WidgetSetWidth(Widget root_widget, string widget_name, float diff)
 	{
 		float w, h;
-		ref Widget widget = root_widget.FindAnyWidget(widget_name);
+		Widget widget = root_widget.FindAnyWidget(widget_name);
 		widget.GetSize(w, h);
 		widget.SetSize(Math.Max(1, diff), h);
 	}

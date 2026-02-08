@@ -34,7 +34,7 @@ class SilverRPCManager
 
 	static void SendToServer(int rpcType, Param params)
 	{
-		PlayerBase player = PlayerBase.Cast(GetGame().GetPlayer());
+		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
 		if (!player)
 			return;
 
@@ -46,7 +46,7 @@ class SilverRPCManager
 
 	static void SendToClient(int rpcType, PlayerIdentity identity, Param params)
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		if (!identity)
@@ -79,7 +79,7 @@ class SilverRPCManager
 		{
 			if (handler && handler.instance)
 			{
-				GetGame().GameScript.CallFunctionParams(handler.instance, handler.methodName, null, new Param2<ParamsReadContext, PlayerIdentity>(ctx, sender));
+				g_Game.GameScript.CallFunctionParams(handler.instance, handler.methodName, null, new Param2<ParamsReadContext, PlayerIdentity>(ctx, sender));
 			}
 		}
 	}
@@ -91,8 +91,8 @@ class SilverRPCManager
 
 		int lowBits;
 		int highBits;
-		GetGame().GetPlayerNetworkIDByIdentityID(identity.GetPlayerId(), lowBits, highBits);
-		return PlayerBase.Cast(GetGame().GetObjectByNetworkId(lowBits, highBits));
+		g_Game.GetPlayerNetworkIDByIdentityID(identity.GetPlayerId(), lowBits, highBits);
+		return PlayerBase.Cast(g_Game.GetObjectByNetworkId(lowBits, highBits));
 	}
 };
 

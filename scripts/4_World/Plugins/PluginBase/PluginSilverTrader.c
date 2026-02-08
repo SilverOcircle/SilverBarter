@@ -50,7 +50,7 @@ class PluginSilverTrader extends PluginBase
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU, this, "RpcRequestTraderMenuClose");
 
 		// Server-Initialisierung
-		if (GetGame().IsServer())
+		if (g_Game.IsServer())
 		{
 			m_traderPoints = new map<int, TraderPoint>;
 			m_traderCache = new map<int, ref SilverTrader_ServerConfig>;
@@ -74,7 +74,7 @@ class PluginSilverTrader extends PluginBase
 	// Client: RPC empfangen - Menu oeffnen
 	void RpcRequestOpen(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!GetGame().IsClient())
+		if (!g_Game.IsClient())
 			return;
 
 		if (m_traderMenu && m_traderMenu.m_active)
@@ -162,7 +162,7 @@ class PluginSilverTrader extends PluginBase
 	void RpcHandleTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
 	{
 		// Server-Handler
-		if (GetGame().IsServer())
+		if (g_Game.IsServer())
 		{
 			RpcRequestTraderAction(ctx, sender);
 			return;
@@ -201,7 +201,7 @@ class PluginSilverTrader extends PluginBase
 
 	void InitializeTraders()
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		if (!m_config || !m_config.m_traders)
@@ -284,7 +284,7 @@ class PluginSilverTrader extends PluginBase
 		m_traderData.Insert(trader.m_traderId, traderData);
 
 		// Trader-NPC spawnen
-		Object traderObj = GetGame().CreateObject(trader.m_classname, trader.m_position);
+		Object traderObj = g_Game.CreateObject(trader.m_classname, trader.m_position);
 		if (!traderObj)
 		{
 			Print("[SilverBarter] ERROR: Konnte Trader-NPC nicht spawnen: " + trader.m_classname);
@@ -306,7 +306,7 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// TraderPoint erstellen (fuer Interaktion)
-		TraderPoint traderPoint = TraderPoint.Cast(GetGame().CreateObject("TraderPoint", trader.m_position));
+		TraderPoint traderPoint = TraderPoint.Cast(g_Game.CreateObject("TraderPoint", trader.m_position));
 		if (traderPoint)
 		{
 			traderPoint.SetAllowDamage(false);
@@ -324,7 +324,7 @@ class PluginSilverTrader extends PluginBase
 	void SendTraderMenuOpen(PlayerBase player, int traderId)
 	{
 
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		if (!player || !player.GetIdentity())
@@ -408,7 +408,7 @@ class PluginSilverTrader extends PluginBase
 
 	void RpcRequestTraderMenuClose(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		int traderId;
@@ -422,7 +422,7 @@ class PluginSilverTrader extends PluginBase
 
 	void RpcRequestTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		PlayerBase player = GetPlayerByIdentity(sender);
@@ -459,7 +459,7 @@ class PluginSilverTrader extends PluginBase
 			if (!ctx.Read(lowBits)) return;
 			if (!ctx.Read(highBits)) return;
 
-			Object obj = GetGame().GetObjectByNetworkId(lowBits, highBits);
+			Object obj = g_Game.GetObjectByNetworkId(lowBits, highBits);
 			ItemBase item = ItemBase.Cast(obj);
 			if (item && sellItems.Find(item) == -1)
 			{
@@ -666,7 +666,7 @@ class PluginSilverTrader extends PluginBase
 							buyMagazine.ServerSetAmmoCount(0);
 						}
 					}
-					else if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname3 + " liquidContainerType"))
+					else if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname3 + " liquidContainerType"))
 					{
 						buyEntity.SetQuantityNormalized(0);
 					}
@@ -729,7 +729,7 @@ class PluginSilverTrader extends PluginBase
 
 	void SaveDirtyTraderData()
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		if (!m_dirtyTraders || m_dirtyTraders.Count() == 0)
@@ -750,7 +750,7 @@ class PluginSilverTrader extends PluginBase
 
 	void SaveAllTraderData()
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		foreach (int traderId, SilverTrader_Data data : m_traderData)
@@ -784,13 +784,13 @@ class PluginSilverTrader extends PluginBase
 			return null;
 
 		int highBits, lowBits;
-		GetGame().GetPlayerNetworkIDByIdentityID(identity.GetPlayerId(), lowBits, highBits);
-		return PlayerBase.Cast(GetGame().GetObjectByNetworkId(lowBits, highBits));
+		g_Game.GetPlayerNetworkIDByIdentityID(identity.GetPlayerId(), lowBits, highBits);
+		return PlayerBase.Cast(g_Game.GetObjectByNetworkId(lowBits, highBits));
 	}
 
 	override void OnUpdate(float delta_time)
 	{
-		if (!GetGame().IsServer())
+		if (!g_Game.IsServer())
 			return;
 
 		// Trader-Tick
@@ -924,17 +924,17 @@ class PluginSilverTrader extends PluginBase
 	{
 		vector itemSize = "1 1 0";
 
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
 		{
-			itemSize = GetGame().ConfigGetVector(CFG_VEHICLESPATH + " " + classname + " itemSize");
+			itemSize = g_Game.ConfigGetVector(CFG_VEHICLESPATH + " " + classname + " itemSize");
 		}
-		else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
 		{
-			itemSize = GetGame().ConfigGetVector(CFG_MAGAZINESPATH + " " + classname + " itemSize");
+			itemSize = g_Game.ConfigGetVector(CFG_MAGAZINESPATH + " " + classname + " itemSize");
 		}
-		else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 		{
-			itemSize = GetGame().ConfigGetVector(CFG_WEAPONSPATH + " " + classname + " itemSize");
+			itemSize = g_Game.ConfigGetVector(CFG_WEAPONSPATH + " " + classname + " itemSize");
 		}
 
 		int itemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
@@ -990,46 +990,46 @@ class PluginSilverTrader extends PluginBase
 
 	float CalculateItemSelectedQuantityStep(string classname)
 	{
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
 			return 1;
 
 		int maxStackSize = 0;
 
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
 		{
-			maxStackSize = GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
+			maxStackSize = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
 		}
-		else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
 		{
-			maxStackSize = GetGame().ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
+			maxStackSize = g_Game.ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
 		}
-		else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 		{
-			maxStackSize = GetGame().ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
+			maxStackSize = g_Game.ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
 		}
 
 		if (maxStackSize > 0)
 		{
 			string stackedUnits = "";
 
-			if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+			if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
 			{
-				stackedUnits = GetGame().ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
+				stackedUnits = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
 			}
-			else if (GetGame().ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+			else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
 			{
-				stackedUnits = GetGame().ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
+				stackedUnits = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
 			}
-			else if (GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+			else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 			{
-				stackedUnits = GetGame().ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
+				stackedUnits = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
 			}
 
 			if (stackedUnits == "pc.")
 			{
 				return 1.0 / maxStackSize;
 			}
-			else if (GetGame().IsKindOf(classname, "Ammunition_Base"))
+			else if (g_Game.IsKindOf(classname, "Ammunition_Base"))
 			{
 				return 1.0 / maxStackSize;
 			}
@@ -1093,17 +1093,17 @@ class PluginSilverTrader extends PluginBase
 	{
 		TStringArray inventorySlots = new TStringArray;
 
-		if (GetGame().IsKindOf(classname, "Grenade_Base") || GetGame().ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		if (g_Game.IsKindOf(classname, "Grenade_Base") || g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 		{
 			return enabledCategories.Get(categories.Find("weapons"));
 		}
 
-		if (GetGame().IsKindOf(classname, "Ammunition_Base") || classname.IndexOf("AmmoBox") == 0)
+		if (g_Game.IsKindOf(classname, "Ammunition_Base") || classname.IndexOf("AmmoBox") == 0)
 		{
 			return enabledCategories.Get(categories.Find("ammo"));
 		}
 
-		if (GetGame().IsKindOf(classname, "Magazine_Base"))
+		if (g_Game.IsKindOf(classname, "Magazine_Base"))
 		{
 			return enabledCategories.Get(categories.Find("magazines"));
 		}
@@ -1113,17 +1113,17 @@ class PluginSilverTrader extends PluginBase
 		{
 			foreach (string toolClass : TOOL_CLASSES)
 			{
-				if (GetGame().IsKindOf(classname, toolClass))
+				if (g_Game.IsKindOf(classname, toolClass))
 				{
 					return enabledCategories.Get(categories.Find("tools"));
 				}
 			}
 		}
 
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " inventorySlot"))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " inventorySlot"))
 		{
 			inventorySlots.Clear();
-			GetGame().ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " inventorySlot", inventorySlots);
+			g_Game.ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " inventorySlot", inventorySlots);
 
 			foreach (string inventorySlot : inventorySlots)
 			{
@@ -1139,10 +1139,10 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		if (GetGame().ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " attachments"))
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " attachments"))
 		{
 			inventorySlots.Clear();
-			GetGame().ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " attachments", inventorySlots);
+			g_Game.ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " attachments", inventorySlots);
 
 			foreach (string attachment : inventorySlots)
 			{
@@ -1154,22 +1154,22 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		if (GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " medicalItem") == 1)
+		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " medicalItem") == 1)
 		{
 			return enabledCategories.Get(categories.Find("medical"));
 		}
 
-		if (GetGame().IsKindOf(classname, "Edible_Base"))
+		if (g_Game.IsKindOf(classname, "Edible_Base"))
 		{
 			return enabledCategories.Get(categories.Find("food"));
 		}
 
-		if (GetGame().IsKindOf(classname, "Clothing_Base"))
+		if (g_Game.IsKindOf(classname, "Clothing_Base"))
 		{
 			return enabledCategories.Get(categories.Find("clothing"));
 		}
 
-		if (GetGame().ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
+		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
 		{
 			return enabledCategories.Get(categories.Find("vehicle_parts"));
 		}
@@ -1228,14 +1228,14 @@ class PluginSilverTrader extends PluginBase
 			if (filter.IndexOf("!") == 0)
 			{
 				string classname = filter.Substring(1, filter.Length() - 1);
-				if (itemType == classname || GetGame().ObjectIsKindOf(item, classname))
+				if (itemType == classname || g_Game.ObjectIsKindOf(item, classname))
 				{
 					filterResult = false;
 				}
 			}
 			else
 			{
-				if (itemType == filter || GetGame().ObjectIsKindOf(item, filter))
+				if (itemType == filter || g_Game.ObjectIsKindOf(item, filter))
 				{
 					filterResult = true;
 				}
@@ -1253,14 +1253,14 @@ class PluginSilverTrader extends PluginBase
 			if (filter.IndexOf("!") == 0)
 			{
 				string classname = filter.Substring(1, filter.Length() - 1);
-				if (itemClassname == classname || GetGame().IsKindOf(itemClassname, classname))
+				if (itemClassname == classname || g_Game.IsKindOf(itemClassname, classname))
 				{
 					filterResult = false;
 				}
 			}
 			else
 			{
-				if (itemClassname == filter || GetGame().IsKindOf(itemClassname, filter))
+				if (itemClassname == filter || g_Game.IsKindOf(itemClassname, filter))
 				{
 					filterResult = true;
 				}

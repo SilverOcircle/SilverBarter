@@ -59,7 +59,7 @@ class TraderPoint extends BuildingSuper
 		super.EEInit();
 
 		// Client: Bei Init Server nach Trader-Infos fragen
-		if (GetGame().IsClient())
+		if (g_Game.IsClient())
 		{
 			RPCSingleParam(SilverERPC.SILVERRPC_SYNCH_TRADER_POINT_SERVER, new Param1<int>(0), true);
 		}
@@ -101,7 +101,7 @@ class TraderPoint extends BuildingSuper
 			return null;
 
 		// Server hat direkten Zugriff
-		if (GetGame().IsServer() && m_traderObject)
+		if (g_Game.IsServer() && m_traderObject)
 		{
 			return m_traderObject;
 		}

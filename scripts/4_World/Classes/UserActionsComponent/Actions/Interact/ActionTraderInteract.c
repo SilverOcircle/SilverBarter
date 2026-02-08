@@ -22,7 +22,7 @@ class ActionTraderInteract: ActionInteractBase
 	override bool ActionCondition(PlayerBase player, ActionTarget target, ItemBase item)
 	{
 		// Server gibt immer true zurueck (Validierung erfolgt spaeter)
-		if (GetGame().IsServer())
+		if (g_Game.IsServer())
 			return true;
 
 		// Client-Pruefungen
@@ -45,7 +45,7 @@ class ActionTraderInteract: ActionInteractBase
 	TraderPoint FindTraderPoint(vector pos)
 	{
 		TraderPoint result = null;
-		ref array<Object> objects = new array<Object>;
+		array<Object> objects = new array<Object>;
 		g_Game.GetObjectsAtPosition3D(pos, 0.1, objects, null);
 
 		foreach (Object obj : objects)
