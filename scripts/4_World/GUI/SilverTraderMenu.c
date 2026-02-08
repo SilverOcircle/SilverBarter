@@ -876,7 +876,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			string quantity_str;
 			float quantity_ratio;
 
-			if (item_base.ConfigGetString("stackedUnit") == "pc.")
+			if (item_base.ConfigGetString("stackedUnit") == "pc." && item_base.CanBeSplit())
 			{
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", item_quantity.ToString() + "/" + max_quantity.ToString() + " " + "#inv_inspect_pieces");
 			}
@@ -943,6 +943,13 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		int maxStacksCount = pluginTrader.CalculateTraderItemQuantityMax(m_traderInfo, classname);
 
+		// canBeSplit pruefen: nur echte Stacks multiplizieren Quantity mit maxStackSize
+		int canBeSplit = 0;
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " canBeSplit"))
+		{
+			canBeSplit = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " canBeSplit");
+		}
+
 		if (maxStackSize > 0 && !g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
 		{
 			string stackedUnits = "";
@@ -960,9 +967,8 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 
 			float item_quantity;
-			int max_quantity;
 
-			if (stackedUnits == "pc.")
+			if (stackedUnits == "pc." && canBeSplit == 1)
 			{
 				item_quantity = quantity * maxStackSize;
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", FormatBuyQuantityStr(item_quantity) + " " + "#inv_inspect_pieces");
@@ -999,6 +1005,12 @@ class SilverTraderMenu extends UIScriptedMenu
 			maxStackSize = g_Game.ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
 		}
 
+		int canBeSplit = 0;
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " canBeSplit"))
+		{
+			canBeSplit = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " canBeSplit");
+		}
+
 		if (maxStackSize > 0 && !g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
 		{
 			string stackedUnits = "";
@@ -1018,7 +1030,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			float item_quantity;
 			float item_max_quantity;
 
-			if (stackedUnits == "pc.")
+			if (stackedUnits == "pc." && canBeSplit == 1)
 			{
 				item_quantity = quantity * maxStackSize;
 				item_max_quantity = maxQuantity * maxStackSize;
