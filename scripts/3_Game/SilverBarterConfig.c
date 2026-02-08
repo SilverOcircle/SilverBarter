@@ -221,7 +221,7 @@ class SilverBarterConfig
 
 		SilverTrader_ItemEntry item5 = new SilverTrader_ItemEntry();
 		item5.classname = "ZenSkills_Injector_PerkReset";
-		item5.quantity = 200;
+		item5.quantity = 2;
 		exampleTrader.m_defaultItems.Insert(item5);
 
 		SilverTrader_ItemEntry item6 = new SilverTrader_ItemEntry();
@@ -241,27 +241,27 @@ class SilverBarterConfig
 
 		SilverTrader_ItemEntry item13 = new SilverTrader_ItemEntry();
 		item13.classname = "Ammo_45ACP";
-		item13.quantity = 150;
+		item13.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item13);
 
 		SilverTrader_ItemEntry item14 = new SilverTrader_ItemEntry();
 		item14.classname = "Ammo_380";
-		item14.quantity = 150;
+		item14.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item14);
 
 		SilverTrader_ItemEntry item15 = new SilverTrader_ItemEntry();
 		item15.classname = "Ammo_22";
-		item15.quantity = 150;
+		item15.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item15);
 
 		SilverTrader_ItemEntry item16 = new SilverTrader_ItemEntry();
 		item16.classname = "Ammo_12gaSlug";
-		item16.quantity = 150;
+		item16.quantity = 20;
 		exampleTrader.m_defaultItems.Insert(item16);
 
 		SilverTrader_ItemEntry item17 = new SilverTrader_ItemEntry();
 		item17.classname = "Ammo_12gaPellets";
-		item17.quantity = 150;
+		item17.quantity = 20;
 		exampleTrader.m_defaultItems.Insert(item17);
 
 		SilverTrader_ItemEntry item18 = new SilverTrader_ItemEntry();
@@ -348,11 +348,6 @@ class SilverBarterConfig
 		item34.classname = "HikingBootsLow_Black";
 		item34.quantity = 5;
 		exampleTrader.m_defaultItems.Insert(item34);
-
-		SilverTrader_ItemEntry item35 = new SilverTrader_ItemEntry();
-		item35.classname = "Zen_TerritoryBlueprint";
-		item35.quantity = 250;
-		exampleTrader.m_defaultItems.Insert(item35);
 
 		m_traders.Insert(exampleTrader);
 	}
