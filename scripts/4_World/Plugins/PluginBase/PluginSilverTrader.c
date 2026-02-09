@@ -609,10 +609,11 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		// Verkaufte Items loeschen
-		foreach (ItemBase sellItem3 : sellItems)
+		// Verkaufte Items loeschen (rueckwaerts, Attachments vor Container)
+		for (int i = sellItems.Count() - 1; i >= 0; i--)
 		{
-			if (sellItem3 && IsItemOwnedByPlayer(sellItem3, player))
+			ItemBase sellItem3 = sellItems[i];
+			if (sellItem3 && !sellItem3.IsPendingDeletion() && IsItemOwnedByPlayer(sellItem3, player))
 			{
 				g_Game.ObjectDelete(sellItem3);
 			}
@@ -751,6 +752,9 @@ class PluginSilverTrader extends PluginBase
 	void SaveAllTraderData()
 	{
 		if (!g_Game.IsServer())
+			return;
+
+		if (!m_traderData)
 			return;
 
 		foreach (int traderId, SilverTrader_Data data : m_traderData)
