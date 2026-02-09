@@ -548,7 +548,7 @@ static SilverBarterConfig GetSilverBarterConfig()
 {
 	if (!g_SilverBarterConfig)
 	{
-		Print("[SilverBarter] Initialisiere Config...");
+		Print("[SilverBarter] Initializing config...");
 		g_SilverBarterConfig = new SilverBarterConfig();
 		g_SilverBarterConfig.Load();
 	}

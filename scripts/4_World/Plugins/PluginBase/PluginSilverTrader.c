@@ -206,7 +206,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (!m_config || !m_config.m_traders)
 		{
-			Print("[SilverBarter] ERROR: Config nicht geladen!");
+			Print("[SilverBarter] ERROR: Config not loaded!");
 			return;
 		}
 
@@ -228,7 +228,7 @@ class PluginSilverTrader extends PluginBase
 	{
 		if (!trader || trader.m_traderId < 0)
 		{
-			Print("[SilverBarter] ERROR: Trader-Config ungueltig.");
+			Print("[SilverBarter] ERROR: Trader config invalid.");
 			return;
 		}
 
@@ -252,7 +252,7 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 			traderData.SaveToJson(dataPath);
-			DebugLog("Default-Items fuer Trader " + trader.m_traderId.ToString() + " geladen.");
+			DebugLog("Default items for trader " + trader.m_traderId.ToString() + " loaded.");
 		}
 
 		// Limitierte Items bei jedem Restart auf maxQuantity zuruecksetzen
@@ -277,7 +277,7 @@ class PluginSilverTrader extends PluginBase
 			if (limitedChanged)
 			{
 				traderData.SaveToJson(dataPath);
-				DebugLog("Limitierte Items fuer Trader " + trader.m_traderId.ToString() + " zurueckgesetzt.");
+				DebugLog("Limited items for trader " + trader.m_traderId.ToString() + " reset.");
 			}
 		}
 
@@ -287,7 +287,7 @@ class PluginSilverTrader extends PluginBase
 		Object traderObj = g_Game.CreateObject(trader.m_classname, trader.m_position);
 		if (!traderObj)
 		{
-			Print("[SilverBarter] ERROR: Konnte Trader-NPC nicht spawnen: " + trader.m_classname);
+			Print("[SilverBarter] ERROR: Could not spawn trader NPC: " + trader.m_classname);
 			return;
 		}
 
@@ -318,7 +318,7 @@ class PluginSilverTrader extends PluginBase
 		m_traderPoints.Insert(trader.m_traderId, traderPoint);
 		m_traderCache.Insert(trader.m_traderId, trader);
 
-		DebugLog("Trader " + trader.m_traderId.ToString() + " gespawnt.");
+		DebugLog("Trader " + trader.m_traderId.ToString() + " spawned.");
 	}
 
 	void SendTraderMenuOpen(PlayerBase player, int traderId)
@@ -403,7 +403,7 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true, player.GetIdentity());
-		DebugLog("Menu-RPC gesendet an " + player.GetIdentity().GetName());
+		DebugLog("Menu RPC sent to " + player.GetIdentity().GetName());
 	}
 
 	void RpcRequestTraderMenuClose(ParamsReadContext ctx, PlayerIdentity sender)
@@ -414,7 +414,7 @@ class PluginSilverTrader extends PluginBase
 		int traderId;
 		if (!ctx.Read(traderId))
 		{
-			Print("[SilverBarter] ERROR: Close traderId lesen fehlgeschlagen");
+			Print("[SilverBarter] ERROR: Failed to read close traderId");
 			return;
 		}
 
@@ -429,13 +429,13 @@ class PluginSilverTrader extends PluginBase
 		if (!player)
 			return;
 
-		DebugLog("Trade-Request von " + sender.GetName());
+		DebugLog("Trade request from " + sender.GetName());
 
 		// Daten einzeln lesen
 		int traderId;
 		if (!ctx.Read(traderId))
 		{
-			Print("[SilverBarter] ERROR: traderId lesen fehlgeschlagen");
+			Print("[SilverBarter] ERROR: Failed to read traderId");
 			return;
 		}
 
@@ -443,12 +443,12 @@ class PluginSilverTrader extends PluginBase
 		int sellCount;
 		if (!ctx.Read(sellCount))
 		{
-			Print("[SilverBarter] ERROR: sellCount lesen fehlgeschlagen");
+			Print("[SilverBarter] ERROR: Failed to read sellCount");
 			return;
 		}
 		if (sellCount < 0 || sellCount > 100)
 		{
-			Print("[SilverBarter] ERROR: sellCount ausserhalb Limit: " + sellCount.ToString());
+			Print("[SilverBarter] ERROR: sellCount out of limit: " + sellCount.ToString());
 			return;
 		}
 
@@ -471,12 +471,12 @@ class PluginSilverTrader extends PluginBase
 		int buyCount;
 		if (!ctx.Read(buyCount))
 		{
-			Print("[SilverBarter] ERROR: buyCount lesen fehlgeschlagen");
+			Print("[SilverBarter] ERROR: Failed to read buyCount");
 			return;
 		}
 		if (buyCount < 0 || buyCount > 10)
 		{
-			Print("[SilverBarter] ERROR: buyCount ausserhalb Limit: " + buyCount.ToString());
+			Print("[SilverBarter] ERROR: buyCount out of limit: " + buyCount.ToString());
 			return;
 		}
 
@@ -495,7 +495,7 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		DebugLog("Trade: " + sellItems.Count().ToString() + " verkaufen, " + buyItems.Count().ToString() + " kaufen");
+		DebugLog("Trade: " + sellItems.Count().ToString() + " selling, " + buyItems.Count().ToString() + " buying");
 
 		SilverTrader_ServerConfig traderInfo;
 		if (!m_traderCache.Find(traderId, traderInfo))
@@ -509,7 +509,7 @@ class PluginSilverTrader extends PluginBase
 		float dist = vector.Distance(player.GetPosition(), traderInfo.m_position);
 		if (dist > 5.0)
 		{
-			DebugLog("Trade abgelehnt: Spieler zu weit entfernt (" + dist.ToString() + "m)");
+			DebugLog("Trade denied: Player too far away (" + dist.ToString() + "m)");
 			return;
 		}
 
@@ -544,14 +544,14 @@ class PluginSilverTrader extends PluginBase
 		// Balance-Check (kein negativer Trade ohne Admin)
 		if (resultPrice < 0)
 		{
-			DebugLog("Trade abgelehnt: Negativer Preis fuer " + sender.GetName());
+			DebugLog("Trade denied: Negative price for " + sender.GetName());
 			return;
 		}
 
 		// Barter-Regel: Verkauf nur mit Gegenkauf erlaubt (kein einseitiges Abgeben)
 		if (sellItems.Count() > 0 && buyItems.Count() == 0)
 		{
-			DebugLog("Trade abgelehnt: Verkauf ohne Gegenkauf von " + sender.GetName());
+			DebugLog("Trade denied: Sell without counter-purchase from " + sender.GetName());
 			return;
 		}
 
@@ -584,7 +584,7 @@ class PluginSilverTrader extends PluginBase
 				traderData.m_items.Set(classname, newValue);
 			}
 
-			DebugLog("Trader " + traderId.ToString() + " kauft: " + classname);
+			DebugLog("Trader " + traderId.ToString() + " buys: " + classname);
 		}
 
 		// Kauf-Items verarbeiten
@@ -605,7 +605,7 @@ class PluginSilverTrader extends PluginBase
 					traderData.m_items.Set(buyClassname2, newValue2);
 				}
 
-				DebugLog("Trader " + traderId.ToString() + " verkauft: " + buyClassname2);
+				DebugLog("Trader " + traderId.ToString() + " sells: " + buyClassname2);
 			}
 		}
 
@@ -623,13 +623,13 @@ class PluginSilverTrader extends PluginBase
 		{
 			if (!CanBuyItem(traderInfo, buyClassname3))
 			{
-				DebugLog("SPAWN SKIP: CanBuyItem false fuer " + buyClassname3);
+				DebugLog("SPAWN SKIP: CanBuyItem false for " + buyClassname3);
 				continue;
 			}
 
 			if (buyQuantity3 <= 0)
 			{
-				DebugLog("SPAWN SKIP: buyQuantity ist 0 fuer " + buyClassname3);
+				DebugLog("SPAWN SKIP: buyQuantity is 0 for " + buyClassname3);
 				continue;
 			}
 
@@ -679,7 +679,7 @@ class PluginSilverTrader extends PluginBase
 				}
 				else
 				{
-					Print("[SilverBarter] SPAWN FAILED: " + buyClassname3 + " konnte nicht erstellt werden (inv=" + foundInvSlot.ToString() + ")");
+					Print("[SilverBarter] SPAWN FAILED: " + buyClassname3 + " could not be created (inv=" + foundInvSlot.ToString() + ")");
 					break;
 				}
 
@@ -713,7 +713,7 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 			respRpc.Send(respPlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true, sender);
-			DebugLog("Trade-Response gesendet mit " + respItemCount.ToString() + " Items");
+			DebugLog("Trade response sent with " + respItemCount.ToString() + " items");
 		}
 	}
 
@@ -742,7 +742,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (m_config && m_config.m_debugMode)
 		{
-			Print("[SilverBarter] " + m_dirtyTraders.Count().ToString() + " Trader-Daten gespeichert.");
+			Print("[SilverBarter] " + m_dirtyTraders.Count().ToString() + " trader data saved.");
 		}
 
 		m_dirtyTraders.Clear();
@@ -763,7 +763,7 @@ class PluginSilverTrader extends PluginBase
 			m_dirtyTraders.Clear();
 		}
 
-		Print("[SilverBarter] Alle Trader-Daten gespeichert (Shutdown).");
+		Print("[SilverBarter] All trader data saved (shutdown).");
 	}
 
 	private bool IsItemOwnedByPlayer(ItemBase item, PlayerBase player)

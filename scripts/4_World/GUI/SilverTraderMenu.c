@@ -561,7 +561,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			closeRpc.Write(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU);
 			closeRpc.Write(m_traderId);
 			closeRpc.Send(closePlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true);
-			Print("[SilverBarter] Close-RPC gesendet fuer Trader " + m_traderId.ToString());
+			Print("[SilverBarter] Close RPC sent for trader " + m_traderId.ToString());
 		}
 
 		CleanupUI();
