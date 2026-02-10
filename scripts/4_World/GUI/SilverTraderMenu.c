@@ -9,6 +9,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	bool m_dirty = false;
 
 	int m_traderId;
+	bool m_isRotatingTrader;
 	ref SilverTrader_Info m_traderInfo;
 	ref SilverTrader_Data m_traderData;
 
@@ -46,9 +47,10 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 	}
 
-	void InitMetadata(int traderId, SilverTrader_Info traderInfo, SilverTrader_Data traderData)
+	void InitMetadata(int traderId, SilverTrader_Info traderInfo, SilverTrader_Data traderData, bool isRotating = false)
 	{
 		m_traderId = traderId;
+		m_isRotatingTrader = isRotating;
 		m_traderInfo = traderInfo;
 		m_traderData = traderData;
 		m_dirty = true;
@@ -387,7 +389,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_tradeButtonInfo.SetText("#silver_trader_block_baditems");
 			m_blockBarter = true;
 		}
-		else if (!m_traderInfo.m_isRotatingTrader && pluginTrader.HasOversizedSellItems(m_traderInfo, m_traderData, sellCounter))
+		else if (!m_isRotatingTrader && pluginTrader.HasOversizedSellItems(m_traderInfo, m_traderData, sellCounter))
 		{
 			m_tradeButtonInfo.SetText("#silver_trader_block_toomany");
 			m_blockBarter = true;

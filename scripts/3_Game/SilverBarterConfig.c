@@ -469,7 +469,6 @@ class SilverTrader_Info
 	float m_dumpingByBadQuality;
 	float m_sellMaxQuantityPercent;
 	float m_buyMaxQuantityPercent;
-	bool m_isRotatingTrader;
 
 	void ~SilverTrader_Info()
 	{
@@ -586,7 +585,9 @@ class SilverRotatingTradersConfig
 {
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterRotatingTraders.json";
+	private const static string CURRENT_VERSION = "1";
 
+	string CONFIG_VERSION;
 	ref array<ref SilverRotatingTrader_Config> m_rotatingTraders;
 
 	void SilverRotatingTradersConfig()
@@ -617,10 +618,19 @@ class SilverRotatingTradersConfig
 		if (FileExist(path))
 		{
 			JsonFileLoader<SilverRotatingTradersConfig>.JsonLoadFile(path, this);
+
+			if (CONFIG_VERSION != CURRENT_VERSION)
+			{
+				JsonFileLoader<SilverRotatingTradersConfig>.JsonSaveFile(path + "_backup", this);
+				Migrate();
+				CONFIG_VERSION = CURRENT_VERSION;
+				Save();
+			}
 		}
 		else
 		{
 			SetDefaultValues();
+			CONFIG_VERSION = CURRENT_VERSION;
 			Save();
 		}
 	}
@@ -636,6 +646,11 @@ class SilverRotatingTradersConfig
 		}
 
 		JsonFileLoader<SilverRotatingTradersConfig>.JsonSaveFile(MOD_FOLDER + CONFIG_NAME, this);
+	}
+
+	private void Migrate()
+	{
+		// Keine Migrationen aktuell noetig
 	}
 
 	void SetDefaultValues()

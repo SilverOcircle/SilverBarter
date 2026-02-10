@@ -117,7 +117,9 @@ class PluginSilverTrader extends PluginBase
 		if (!ctx.Read(traderInfo.m_dumpingByBadQuality)) return;
 		if (!ctx.Read(traderInfo.m_sellMaxQuantityPercent)) return;
 		if (!ctx.Read(traderInfo.m_buyMaxQuantityPercent)) return;
-		if (!ctx.Read(traderInfo.m_isRotatingTrader)) return;
+
+		bool isRotating;
+		if (!ctx.Read(isRotating)) return;
 
 		// Filter lesen
 		int buyFilterCount;
@@ -170,7 +172,7 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		m_traderMenu = new SilverTraderMenu;
-		m_traderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData);
+		m_traderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData, isRotating);
 		g_Game.GetUIManager().ShowScriptedMenu(m_traderMenu, null);
 	}
 
