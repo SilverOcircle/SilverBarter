@@ -328,6 +328,8 @@ Each entry in `m_rotatingTraders` supports the following fields:
 | `m_spawnPositions` | array | List of possible spawn positions as `"x y z"`. A random one is chosen on each restart. |
 | `m_orientation` | float | Y-axis rotation in degrees |
 
+> **Note:** The config file may also contain a `m_position` field (inherited from the base class). This field is **ignored** for rotating traders — the actual spawn position is always chosen randomly from `m_spawnPositions` at runtime. You can safely leave it at its default value.
+
 **Rotation Settings:**
 
 | Field | Type | Description |
@@ -335,9 +337,9 @@ Each entry in `m_rotatingTraders` supports the following fields:
 | `m_rotationIntervalMinutes` | int | Interval in minutes after which the inventory is regenerated (e.g. `60`) |
 | `m_activeSlots` | int | Number of items selected from the pool per rotation |
 
-**Economy (inherited from SilverTrader_Info):**
+**Economy Settings:**
 
-The fields `m_storageMaxSize`, `m_storageCommission`, `m_dumpingByAmountModifier`, etc. are inherited from the standard trader and work identically.
+Each rotating trader has its own independent economy settings. These are the same fields as standard traders (`m_storageMaxSize`, `m_storageCommission`, `m_dumpingByAmountModifier`, etc.) and can be configured individually per rotating trader.
 
 ### Pool Items
 
