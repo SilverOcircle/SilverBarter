@@ -387,7 +387,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_tradeButtonInfo.SetText("#silver_trader_block_baditems");
 			m_blockBarter = true;
 		}
-		else if (pluginTrader.HasOversizedSellItems(m_traderInfo, m_traderData, sellCounter))
+		else if (!m_traderInfo.m_isRotatingTrader && pluginTrader.HasOversizedSellItems(m_traderInfo, m_traderData, sellCounter))
 		{
 			m_tradeButtonInfo.SetText("#silver_trader_block_toomany");
 			m_blockBarter = true;

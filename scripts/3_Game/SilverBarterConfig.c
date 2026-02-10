@@ -4,7 +4,7 @@ class SilverBarterConfig
 	// Config-Pfade
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterConfig.json";
-	private const static string CURRENT_VERSION = "1";
+	private const static string CURRENT_VERSION = "2";
 
 	string CONFIG_VERSION;
 
@@ -13,10 +13,12 @@ class SilverBarterConfig
 
 	// Trader-Konfiguration
 	ref array<ref SilverTrader_ServerConfig> m_traders;
+	ref array<ref SilverRotatingTrader_Config> m_rotatingTraders;
 
 	void SilverBarterConfig()
 	{
 		m_traders = new array<ref SilverTrader_ServerConfig>;
+		m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
 	}
 
 	void ~SilverBarterConfig()
@@ -25,6 +27,11 @@ class SilverBarterConfig
 		{
 			m_traders.Clear();
 			delete m_traders;
+		}
+		if (m_rotatingTraders)
+		{
+			m_rotatingTraders.Clear();
+			delete m_rotatingTraders;
 		}
 	}
 
@@ -46,6 +53,7 @@ class SilverBarterConfig
 			if (CONFIG_VERSION != CURRENT_VERSION)
 			{
 				JsonFileLoader<SilverBarterConfig>.JsonSaveFile(path + "_backup", this);
+				Migrate();
 				CONFIG_VERSION = CURRENT_VERSION;
 				Save();
 			}
@@ -55,6 +63,16 @@ class SilverBarterConfig
 			SetDefaultValues();
 			CONFIG_VERSION = CURRENT_VERSION;
 			Save();
+		}
+	}
+
+	private void Migrate()
+	{
+		// V1 -> V2: m_rotatingTraders hinzugefuegt
+		if (!m_rotatingTraders || m_rotatingTraders.Count() == 0)
+		{
+			m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
+			Print("[SilverBarter] Migration: m_rotatingTraders initialized (empty). Configure in SilverBarterConfig.json.");
 		}
 	}
 
@@ -216,7 +234,7 @@ class SilverBarterConfig
 
 		SilverTrader_ItemEntry item4 = new SilverTrader_ItemEntry();
 		item4.classname = "ZenSkills_Injector_ExpBoost";
-		item4.quantity = 200;
+		item4.quantity = 8;
 		exampleTrader.m_defaultItems.Insert(item4);
 
 		SilverTrader_ItemEntry item5 = new SilverTrader_ItemEntry();
@@ -261,17 +279,17 @@ class SilverBarterConfig
 
 		SilverTrader_ItemEntry item17 = new SilverTrader_ItemEntry();
 		item17.classname = "Ammo_12gaPellets";
-		item17.quantity = 20;
+		item17.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item17);
 
 		SilverTrader_ItemEntry item18 = new SilverTrader_ItemEntry();
 		item18.classname = "AmmoBox_12gaSlug_10Rnd";
-		item18.quantity = 20;
+		item18.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item18);
 
 		SilverTrader_ItemEntry item19 = new SilverTrader_ItemEntry();
 		item19.classname = "AmmoBox_00buck_10rnd";
-		item19.quantity = 20;
+		item19.quantity = 10;
 		exampleTrader.m_defaultItems.Insert(item19);
 
 		SilverTrader_ItemEntry item20 = new SilverTrader_ItemEntry();
@@ -350,6 +368,376 @@ class SilverBarterConfig
 		exampleTrader.m_defaultItems.Insert(item34);
 
 		m_traders.Insert(exampleTrader);
+
+		// Beispiel: Rotierender Haendler
+		m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
+
+		SilverRotatingTrader_Config rotatingTrader = new SilverRotatingTrader_Config();
+		rotatingTrader.m_traderId = 100;
+		rotatingTrader.m_classname = "SurvivorM_Boris";
+		rotatingTrader.m_positions = new array<string>;
+		rotatingTrader.m_positions.Insert("6744.79 51.09 11380.01");
+		rotatingTrader.m_positions.Insert("3634.65 99.05 7496.00");
+		rotatingTrader.m_positions.Insert("4152.52 74.094 7759.84");
+		rotatingTrader.m_positions.Insert("5226.59 35.481 8586.15");
+		rotatingTrader.m_positions.Insert("6294.12 20.80 9524.32");
+		rotatingTrader.m_positions.Insert("8172.09 31.48 10659.29");
+		rotatingTrader.m_rotation = 0;
+		rotatingTrader.m_rotationIntervalMinutes = 60;
+		rotatingTrader.m_activeSlots = 5;
+		rotatingTrader.m_storageMaxSize = 5000;
+		rotatingTrader.m_storageCommission = 0.95;
+		rotatingTrader.m_dumpingByAmountAlgorithm = "linear";
+		rotatingTrader.m_dumpingByAmountModifier = 0.65;
+		rotatingTrader.m_dumpingByBadQuality = 0.5;
+		rotatingTrader.m_sellMaxQuantityPercent = 0.8;
+		rotatingTrader.m_buyMaxQuantityPercent = 0.9;
+		rotatingTrader.m_enableZenMapMarker = true;
+		rotatingTrader.m_zenMapMarkerName = "Yuri";
+		rotatingTrader.m_zenMapMarkerIcon = "";
+
+		rotatingTrader.m_buyFilter = new array<string>;
+		rotatingTrader.m_buyFilter.Insert("Inventory_Base");
+		rotatingTrader.m_buyFilter.Insert("Weapon_Base");
+		rotatingTrader.m_buyFilter.Insert("Magazine_Base");
+		rotatingTrader.m_buyFilter.Insert("Ammunition_Base");
+
+		rotatingTrader.m_sellFilter = new array<string>;
+		rotatingTrader.m_sellFilter.Insert("Inventory_Base");
+		rotatingTrader.m_sellFilter.Insert("Weapon_Base");
+		rotatingTrader.m_sellFilter.Insert("Magazine_Base");
+		rotatingTrader.m_sellFilter.Insert("Ammunition_Base");
+		rotatingTrader.m_sellFilter.Insert("!SyringeFull");
+		rotatingTrader.m_sellFilter.Insert("!Paper");
+		rotatingTrader.m_sellFilter.Insert("!Zen_EmptyFood");
+		rotatingTrader.m_sellFilter.Insert("!FenceKit");
+		rotatingTrader.m_sellFilter.Insert("!WatchtowerKit");
+		rotatingTrader.m_sellFilter.Insert("!ShelterKit");
+		rotatingTrader.m_sellFilter.Insert("!TerritoryFlagKit");
+		rotatingTrader.m_sellFilter.Insert("!Flag_Base");
+		rotatingTrader.m_sellFilter.Insert("!Rag");
+		rotatingTrader.m_sellFilter.Insert("!BurlapStrip");
+		rotatingTrader.m_sellFilter.Insert("!Stone");
+		rotatingTrader.m_sellFilter.Insert("!SmallStone");
+		rotatingTrader.m_sellFilter.Insert("!Firewood");
+		rotatingTrader.m_sellFilter.Insert("!BoneHook");
+		rotatingTrader.m_sellFilter.Insert("!WoodenHook");
+		rotatingTrader.m_sellFilter.Insert("!Bark_ColorBase");
+		rotatingTrader.m_sellFilter.Insert("!Bone");
+		rotatingTrader.m_sellFilter.Insert("!Bait");
+		rotatingTrader.m_sellFilter.Insert("!BoneBait");
+		rotatingTrader.m_sellFilter.Insert("!Barrel_ColorBase");
+		rotatingTrader.m_sellFilter.Insert("!FireplaceBase");
+		rotatingTrader.m_sellFilter.Insert("!CookingStand");
+		rotatingTrader.m_sellFilter.Insert("!WoodenStick");
+		rotatingTrader.m_sellFilter.Insert("!Torch");
+		rotatingTrader.m_sellFilter.Insert("!LongWoodenStick");
+		rotatingTrader.m_sellFilter.Insert("!SharpWoodenStick");
+		rotatingTrader.m_sellFilter.Insert("!HandDrillKit");
+		rotatingTrader.m_sellFilter.Insert("!Spear");
+		rotatingTrader.m_sellFilter.Insert("!SmallGuts");
+		rotatingTrader.m_sellFilter.Insert("!Guts");
+		rotatingTrader.m_sellFilter.Insert("!Worm");
+		rotatingTrader.m_sellFilter.Insert("!ImprovisedFishingRod");
+		rotatingTrader.m_sellFilter.Insert("!TripwireTrap");
+		rotatingTrader.m_sellFilter.Insert("!RabbitSnareTrap");
+		rotatingTrader.m_sellFilter.Insert("!FishNetTrap");
+		rotatingTrader.m_sellFilter.Insert("!SmallFishTrap");
+		rotatingTrader.m_sellFilter.Insert("!Empty_ZenJameson");
+		rotatingTrader.m_sellFilter.Insert("!Zen_CamoShelterKit");
+		rotatingTrader.m_sellFilter.Insert("!Empty_Honey");
+		rotatingTrader.m_sellFilter.Insert("!Empty_Marmalade");
+		rotatingTrader.m_sellFilter.Insert("!Empty_Can_Opened");
+		rotatingTrader.m_sellFilter.Insert("!BF_DoorBarricadeKit");
+		rotatingTrader.m_sellFilter.Insert("!BF_WindowBarricadeKit");
+		rotatingTrader.m_sellFilter.Insert("!BF_WindowBarricadeMedKit");
+		rotatingTrader.m_sellFilter.Insert("!BF_DoubleDoorBarricadeKit");
+		rotatingTrader.m_sellFilter.Insert("!bl_improvised_whetstone");
+		rotatingTrader.m_sellFilter.Insert("!bl_improvised_sewing_kit");
+		rotatingTrader.m_sellFilter.Insert("!Single_Match");
+
+		rotatingTrader.m_commissionOverrides = new array<ref SilverCommissionOverride>;
+
+		rotatingTrader.m_attachments = new array<string>;
+		rotatingTrader.m_attachments.Insert("GorkaHelmet_Green");
+		rotatingTrader.m_attachments.Insert("TTsKOJacket_Camo");
+		rotatingTrader.m_attachments.Insert("TTSKOPants");
+		rotatingTrader.m_attachments.Insert("MilitaryBoots_Black");
+
+		rotatingTrader.m_poolItems = new array<ref SilverTrader_PoolItem>;
+
+		SilverTrader_PoolItem poolItem1 = new SilverTrader_PoolItem();
+		poolItem1.classname = "AKM";
+		poolItem1.quantity = 1;
+		poolItem1.weight = 0.1;
+		rotatingTrader.m_poolItems.Insert(poolItem1);
+
+		SilverTrader_PoolItem poolItem2 = new SilverTrader_PoolItem();
+		poolItem2.classname = "M4A1";
+		poolItem2.quantity = 1;
+		poolItem2.weight = 0.05;
+		rotatingTrader.m_poolItems.Insert(poolItem2);
+
+		SilverTrader_PoolItem poolItem3 = new SilverTrader_PoolItem();
+		poolItem3.classname = "UMP45";
+		poolItem3.quantity = 2;
+		poolItem3.weight = 0.5;
+		rotatingTrader.m_poolItems.Insert(poolItem3);
+
+		SilverTrader_PoolItem poolItem4 = new SilverTrader_PoolItem();
+		poolItem4.classname = "MP5K";
+		poolItem4.quantity = 2;
+		poolItem4.weight = 0.7;
+		rotatingTrader.m_poolItems.Insert(poolItem4);
+
+		SilverTrader_PoolItem poolItem5 = new SilverTrader_PoolItem();
+		poolItem5.classname = "Ammo_762x39";
+		poolItem5.quantity = 60;
+		poolItem5.weight = 1.0;
+		rotatingTrader.m_poolItems.Insert(poolItem5);
+
+		SilverTrader_PoolItem poolItem6 = new SilverTrader_PoolItem();
+		poolItem6.classname = "M68Optic";
+		poolItem6.quantity = 1;
+		poolItem6.weight = 0.3;
+		rotatingTrader.m_poolItems.Insert(poolItem6);
+
+		// Waffen
+		SilverTrader_PoolItem poolItem7 = new SilverTrader_PoolItem();
+		poolItem7.classname = "FAMAS";
+		poolItem7.quantity = 1;
+		poolItem7.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem7);
+
+		SilverTrader_PoolItem poolItem8 = new SilverTrader_PoolItem();
+		poolItem8.classname = "AugShort";
+		poolItem8.quantity = 1;
+		poolItem8.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem8);
+
+		SilverTrader_PoolItem poolItem9 = new SilverTrader_PoolItem();
+		poolItem9.classname = "SVD";
+		poolItem9.quantity = 1;
+		poolItem9.weight = 0.05;
+		rotatingTrader.m_poolItems.Insert(poolItem9);
+
+		SilverTrader_PoolItem poolItem10 = new SilverTrader_PoolItem();
+		poolItem10.classname = "VSS";
+		poolItem10.quantity = 1;
+		poolItem10.weight = 0.08;
+		rotatingTrader.m_poolItems.Insert(poolItem10);
+
+		SilverTrader_PoolItem poolItem11 = new SilverTrader_PoolItem();
+		poolItem11.classname = "Saiga";
+		poolItem11.quantity = 1;
+		poolItem11.weight = 0.1;
+		rotatingTrader.m_poolItems.Insert(poolItem11);
+
+		SilverTrader_PoolItem poolItem12 = new SilverTrader_PoolItem();
+		poolItem12.classname = "M16A2";
+		poolItem12.quantity = 1;
+		poolItem12.weight = 0.12;
+		rotatingTrader.m_poolItems.Insert(poolItem12);
+
+		SilverTrader_PoolItem poolItem13 = new SilverTrader_PoolItem();
+		poolItem13.classname = "Deagle";
+		poolItem13.quantity = 1;
+		poolItem13.weight = 0.2;
+		rotatingTrader.m_poolItems.Insert(poolItem13);
+
+		// Munition
+		SilverTrader_PoolItem poolItem14 = new SilverTrader_PoolItem();
+		poolItem14.classname = "AmmoBox_556x45_20Rnd";
+		poolItem14.quantity = 3;
+		poolItem14.weight = 0.8;
+		rotatingTrader.m_poolItems.Insert(poolItem14);
+
+		SilverTrader_PoolItem poolItem15 = new SilverTrader_PoolItem();
+		poolItem15.classname = "AmmoBox_308Win_20Rnd";
+		poolItem15.quantity = 2;
+		poolItem15.weight = 0.6;
+		rotatingTrader.m_poolItems.Insert(poolItem15);
+
+		SilverTrader_PoolItem poolItem16 = new SilverTrader_PoolItem();
+		poolItem16.classname = "AmmoBox_357_20Rnd";
+		poolItem16.quantity = 3;
+		poolItem16.weight = 0.7;
+		rotatingTrader.m_poolItems.Insert(poolItem16);
+
+		SilverTrader_PoolItem poolItem17 = new SilverTrader_PoolItem();
+		poolItem17.classname = "AmmoBox_9x39_20Rnd";
+		poolItem17.quantity = 2;
+		poolItem17.weight = 0.5;
+		rotatingTrader.m_poolItems.Insert(poolItem17);
+
+		SilverTrader_PoolItem poolItem18 = new SilverTrader_PoolItem();
+		poolItem18.classname = "AmmoBox_762x39_20Rnd";
+		poolItem18.quantity = 3;
+		poolItem18.weight = 0.8;
+		rotatingTrader.m_poolItems.Insert(poolItem18);
+
+		// Magazine
+		SilverTrader_PoolItem poolItem19 = new SilverTrader_PoolItem();
+		poolItem19.classname = "Mag_MP5_30Rnd";
+		poolItem19.quantity = 2;
+		poolItem19.weight = 0.6;
+		rotatingTrader.m_poolItems.Insert(poolItem19);
+
+		SilverTrader_PoolItem poolItem20 = new SilverTrader_PoolItem();
+		poolItem20.classname = "Mag_AKM_Drum75Rnd";
+		poolItem20.quantity = 1;
+		poolItem20.weight = 0.05;
+		rotatingTrader.m_poolItems.Insert(poolItem20);
+
+		SilverTrader_PoolItem poolItem21 = new SilverTrader_PoolItem();
+		poolItem21.classname = "Mag_STANAG_60Rnd";
+		poolItem21.quantity = 1;
+		poolItem21.weight = 0.08;
+		rotatingTrader.m_poolItems.Insert(poolItem21);
+
+		SilverTrader_PoolItem poolItem22 = new SilverTrader_PoolItem();
+		poolItem22.classname = "Mag_STANAG_30Rnd";
+		poolItem22.quantity = 2;
+		poolItem22.weight = 0.5;
+		rotatingTrader.m_poolItems.Insert(poolItem22);
+
+		SilverTrader_PoolItem poolItem23 = new SilverTrader_PoolItem();
+		poolItem23.classname = "Mag_Aug_30Rnd";
+		poolItem23.quantity = 2;
+		poolItem23.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem23);
+
+		SilverTrader_PoolItem poolItem24 = new SilverTrader_PoolItem();
+		poolItem24.classname = "Mag_FAMAS_25Rnd";
+		poolItem24.quantity = 2;
+		poolItem24.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem24);
+
+		SilverTrader_PoolItem poolItem25 = new SilverTrader_PoolItem();
+		poolItem25.classname = "Mag_SVD_10Rnd";
+		poolItem25.quantity = 1;
+		poolItem25.weight = 0.2;
+		rotatingTrader.m_poolItems.Insert(poolItem25);
+
+		SilverTrader_PoolItem poolItem26 = new SilverTrader_PoolItem();
+		poolItem26.classname = "Mag_Saiga_Drum20Rnd";
+		poolItem26.quantity = 1;
+		poolItem26.weight = 0.1;
+		rotatingTrader.m_poolItems.Insert(poolItem26);
+
+		SilverTrader_PoolItem poolItem27 = new SilverTrader_PoolItem();
+		poolItem27.classname = "Mag_Saiga_8Rnd";
+		poolItem27.quantity = 2;
+		poolItem27.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem27);
+
+		// Suppressor
+		SilverTrader_PoolItem poolItem28 = new SilverTrader_PoolItem();
+		poolItem28.classname = "M4_Suppressor";
+		poolItem28.quantity = 1;
+		poolItem28.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem28);
+
+		SilverTrader_PoolItem poolItem29 = new SilverTrader_PoolItem();
+		poolItem29.classname = "AK_Suppressor";
+		poolItem29.quantity = 1;
+		poolItem29.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem29);
+
+		SilverTrader_PoolItem poolItem30 = new SilverTrader_PoolItem();
+		poolItem30.classname = "PistolSuppressor";
+		poolItem30.quantity = 1;
+		poolItem30.weight = 0.25;
+		rotatingTrader.m_poolItems.Insert(poolItem30);
+
+		// Werkzeug / Reparatur
+		SilverTrader_PoolItem poolItem31 = new SilverTrader_PoolItem();
+		poolItem31.classname = "SewingKit";
+		poolItem31.quantity = 2;
+		poolItem31.weight = 0.6;
+		rotatingTrader.m_poolItems.Insert(poolItem31);
+
+		SilverTrader_PoolItem poolItem32 = new SilverTrader_PoolItem();
+		poolItem32.classname = "LeatherSewingKit";
+		poolItem32.quantity = 2;
+		poolItem32.weight = 0.5;
+		rotatingTrader.m_poolItems.Insert(poolItem32);
+
+		// Rüstung
+		SilverTrader_PoolItem poolItem33 = new SilverTrader_PoolItem();
+		poolItem33.classname = "PlateCarrierVest_Black";
+		poolItem33.quantity = 1;
+		poolItem33.weight = 0.08;
+		rotatingTrader.m_poolItems.Insert(poolItem33);
+
+		SilverTrader_PoolItem poolItem34 = new SilverTrader_PoolItem();
+		poolItem34.classname = "PlateCarrierVest_Camo";
+		poolItem34.quantity = 1;
+		poolItem34.weight = 0.08;
+		rotatingTrader.m_poolItems.Insert(poolItem34);
+
+		SilverTrader_PoolItem poolItem35 = new SilverTrader_PoolItem();
+		poolItem35.classname = "BallisticHelmet_Black";
+		poolItem35.quantity = 1;
+		poolItem35.weight = 0.1;
+		rotatingTrader.m_poolItems.Insert(poolItem35);
+
+		// DZN Mod-Items
+		SilverTrader_PoolItem poolItem36 = new SilverTrader_PoolItem();
+		poolItem36.classname = "dzn_module_card";
+		poolItem36.quantity = 1;
+		poolItem36.weight = 0.3;
+		rotatingTrader.m_poolItems.Insert(poolItem36);
+
+		SilverTrader_PoolItem poolItem37 = new SilverTrader_PoolItem();
+		poolItem37.classname = "dzn_module_lantia";
+		poolItem37.quantity = 1;
+		poolItem37.weight = 0.2;
+		rotatingTrader.m_poolItems.Insert(poolItem37);
+
+		SilverTrader_PoolItem poolItem38 = new SilverTrader_PoolItem();
+		poolItem38.classname = "dzn_module_surge";
+		poolItem38.quantity = 1;
+		poolItem38.weight = 0.2;
+		rotatingTrader.m_poolItems.Insert(poolItem38);
+
+		SilverTrader_PoolItem poolItem39 = new SilverTrader_PoolItem();
+		poolItem39.classname = "dzn_module_ext";
+		poolItem39.quantity = 1;
+		poolItem39.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem39);
+
+		SilverTrader_PoolItem poolItem40 = new SilverTrader_PoolItem();
+		poolItem40.classname = "dzn_module_ext2";
+		poolItem40.quantity = 1;
+		poolItem40.weight = 0.15;
+		rotatingTrader.m_poolItems.Insert(poolItem40);
+
+		SilverTrader_PoolItem poolItem41 = new SilverTrader_PoolItem();
+		poolItem41.classname = "dzn_detector";
+		poolItem41.quantity = 1;
+		poolItem41.weight = 0.1;
+		rotatingTrader.m_poolItems.Insert(poolItem41);
+
+		SilverTrader_PoolItem poolItem42 = new SilverTrader_PoolItem();
+		poolItem42.classname = "dzn_printer_filament_abs";
+		poolItem42.quantity = 2;
+		poolItem42.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem42);
+
+		SilverTrader_PoolItem poolItem43 = new SilverTrader_PoolItem();
+		poolItem43.classname = "dzn_printer_filament_tpc";
+		poolItem43.quantity = 2;
+		poolItem43.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem43);
+
+		SilverTrader_PoolItem poolItem44 = new SilverTrader_PoolItem();
+		poolItem44.classname = "dzn_printer_filament_nylon";
+		poolItem44.quantity = 2;
+		poolItem44.weight = 0.4;
+		rotatingTrader.m_poolItems.Insert(poolItem44);
+
+		m_rotatingTraders.Insert(rotatingTrader);
 	}
 };
 
@@ -463,6 +851,7 @@ class SilverTrader_Info
 	float m_dumpingByBadQuality;
 	float m_sellMaxQuantityPercent;
 	float m_buyMaxQuantityPercent;
+	bool m_isRotatingTrader;
 
 	void ~SilverTrader_Info()
 	{
@@ -519,6 +908,39 @@ class SilverTrader_LimitedItem
 {
 	string classname;
 	int maxQuantity;
+};
+
+// Pool-Item fuer rotierende Haendler (mit Gewichtung)
+class SilverTrader_PoolItem
+{
+	string classname;
+	int quantity;       // Menge pro Rotation
+	float weight;       // Gewichtung (1.0 = normal, 0.1 = sehr selten)
+};
+
+// Rotierender Haendler Config (komplett isoliert vom normalen Trader)
+class SilverRotatingTrader_Config : SilverTrader_Info
+{
+	string m_classname;
+	ref array<string> m_attachments;
+	ref array<string> m_positions;                        // Mehrere Spawn-Positionen (zufaellig bei Restart)
+	float m_rotation;
+	int m_rotationIntervalMinutes;                        // Rotationsintervall in Minuten
+	int m_activeSlots;                                    // Wie viele Items pro Rotation aktiv
+	ref array<ref SilverTrader_PoolItem> m_poolItems;     // Gesamtkatalog
+	bool m_enableZenMapMarker;                            // ZenMap Marker auf Karte anzeigen
+	string m_zenMapMarkerName;                            // Name des Markers auf der Karte
+	string m_zenMapMarkerIcon;                            // Icon-Pfad (leer = Standard)
+
+	void ~SilverRotatingTrader_Config()
+	{
+		if (m_attachments)
+			delete m_attachments;
+		if (m_positions)
+			delete m_positions;
+		if (m_poolItems)
+			delete m_poolItems;
+	}
 };
 
 // Server-spezifische Trader-Config (erweitert Info um Spawn-Daten)

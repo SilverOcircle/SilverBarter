@@ -17,6 +17,13 @@ class PluginSilverTrader extends PluginBase
 	float m_saveTimer = 0;
 	const float SAVE_INTERVAL = 300.0; // Alle 5 Minuten speichern
 
+	// Rotierende Haendler (Runtime-Daten, nicht persistent)
+	ref map<int, TraderPoint> m_rotatingTraderPoints;
+	ref map<int, ref SilverRotatingTrader_Config> m_rotatingTraderCache;
+	ref map<int, ref SilverTrader_Data> m_rotatingTraderData;
+	ref map<int, float> m_rotationTimers;
+	bool m_zenMapMarkersSet = false;
+
 	private const string DATA_FOLDER = "$profile:\\SilverBarter\\TraderData\\";
 
 	override void OnInit()
@@ -48,6 +55,7 @@ class PluginSilverTrader extends PluginBase
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_OPEN_TRADE_MENU, this, "RpcRequestOpen");
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ACTION_TRADER, this, "RpcHandleTraderAction");
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU, this, "RpcRequestTraderMenuClose");
+		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ROTATING_TRADER_SYNC, this, "RpcRotatingTraderSync");
 
 		// Server-Initialisierung
 		if (g_Game.IsServer())
@@ -56,6 +64,11 @@ class PluginSilverTrader extends PluginBase
 			m_traderCache = new map<int, ref SilverTrader_ServerConfig>;
 			m_traderData = new map<int, ref SilverTrader_Data>;
 			m_dirtyTraders = new set<int>;
+
+			m_rotatingTraderPoints = new map<int, TraderPoint>;
+			m_rotatingTraderCache = new map<int, ref SilverRotatingTrader_Config>;
+			m_rotatingTraderData = new map<int, ref SilverTrader_Data>;
+			m_rotationTimers = new map<int, float>;
 
 			m_config = GetSilverBarterConfig();
 		}
@@ -102,6 +115,7 @@ class PluginSilverTrader extends PluginBase
 		if (!ctx.Read(traderInfo.m_dumpingByBadQuality)) return;
 		if (!ctx.Read(traderInfo.m_sellMaxQuantityPercent)) return;
 		if (!ctx.Read(traderInfo.m_buyMaxQuantityPercent)) return;
+		if (!ctx.Read(traderInfo.m_isRotatingTrader)) return;
 
 		// Filter lesen
 		int buyFilterCount;
@@ -222,6 +236,16 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
+
+		// Rotierende Haendler initialisieren
+		if (m_config.m_rotatingTraders && m_config.m_rotatingTraders.Count() > 0)
+		{
+			foreach (SilverRotatingTrader_Config rotTrader : m_config.m_rotatingTraders)
+			{
+				SpawnRotatingTrader(rotTrader);
+			}
+			DebugLog(m_config.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
+		}
 	}
 
 	private void SpawnTrader(SilverTrader_ServerConfig trader)
@@ -321,6 +345,305 @@ class PluginSilverTrader extends PluginBase
 		DebugLog("Trader " + trader.m_traderId.ToString() + " spawned.");
 	}
 
+	// ========== ROTIERENDE HAENDLER ==========
+
+	private void SpawnRotatingTrader(SilverRotatingTrader_Config trader)
+	{
+		if (!trader || trader.m_traderId < 0)
+		{
+			Print("[SilverBarter] ERROR: Rotating trader config invalid.");
+			return;
+		}
+
+		if (!trader.m_positions || trader.m_positions.Count() == 0)
+		{
+			Print("[SilverBarter] ERROR: Rotating trader has no positions configured.");
+			return;
+		}
+
+		// Zufaellige Position waehlen
+		int posIndex = Math.RandomInt(0, trader.m_positions.Count());
+		vector spawnPos = trader.m_positions.Get(posIndex).ToVector();
+		trader.m_position = spawnPos;
+
+		DebugLog("Rotating Trader " + trader.m_traderId.ToString() + " spawns at position index " + posIndex.ToString());
+
+		// Runtime-Daten erstellen und erste Rotation durchfuehren
+		SilverTrader_Data traderData = new SilverTrader_Data();
+		RotateTraderPool(trader, traderData);
+		m_rotatingTraderData.Insert(trader.m_traderId, traderData);
+
+		// NPC spawnen
+		Object traderObj = g_Game.CreateObject(trader.m_classname, spawnPos);
+		if (!traderObj)
+		{
+			Print("[SilverBarter] ERROR: Could not spawn rotating trader NPC: " + trader.m_classname);
+			return;
+		}
+
+		traderObj.SetAllowDamage(false);
+		traderObj.SetPosition(spawnPos);
+		traderObj.SetOrientation(Vector(trader.m_rotation, 0, 0));
+
+		// Attachments
+		EntityAI traderEntity;
+		if (EntityAI.CastTo(traderEntity, traderObj) && trader.m_attachments)
+		{
+			foreach (string attachment : trader.m_attachments)
+			{
+				traderEntity.GetInventory().CreateInInventory(attachment);
+			}
+		}
+
+		// TraderPoint erstellen
+		TraderPoint traderPoint = TraderPoint.Cast(g_Game.CreateObject("TraderPoint", spawnPos));
+		if (traderPoint)
+		{
+			traderPoint.SetAllowDamage(false);
+			traderPoint.SetPosition(spawnPos);
+			traderPoint.SetOrientation(Vector(trader.m_rotation, 0, 0));
+			traderPoint.InitTraderPoint(trader.m_traderId, traderObj, true);
+		}
+
+		m_rotatingTraderPoints.Insert(trader.m_traderId, traderPoint);
+		m_rotatingTraderCache.Insert(trader.m_traderId, trader);
+		m_rotationTimers.Insert(trader.m_traderId, 0);
+
+		DebugLog("Rotating Trader " + trader.m_traderId.ToString() + " spawned with " + traderData.m_items.Count().ToString() + " items.");
+	}
+
+	private void RotateTraderPool(SilverRotatingTrader_Config trader, SilverTrader_Data traderData)
+	{
+		if (!trader || !trader.m_poolItems || trader.m_poolItems.Count() == 0)
+			return;
+
+		traderData.m_items.Clear();
+
+		int slotsToFill = Math.Min(trader.m_activeSlots, trader.m_poolItems.Count());
+
+		// Kopie der Pool-Indizes erstellen fuer gewichtete Auswahl ohne Zuruecklegen
+		array<int> availableIndices = new array<int>;
+		array<float> availableWeights = new array<float>;
+		float totalWeight = 0;
+
+		for (int i = 0; i < trader.m_poolItems.Count(); i++)
+		{
+			SilverTrader_PoolItem poolItem = trader.m_poolItems.Get(i);
+			if (poolItem && poolItem.weight > 0)
+			{
+				availableIndices.Insert(i);
+				availableWeights.Insert(poolItem.weight);
+				totalWeight = totalWeight + poolItem.weight;
+			}
+		}
+
+		for (int s = 0; s < slotsToFill; s++)
+		{
+			if (availableIndices.Count() == 0 || totalWeight <= 0)
+				break;
+
+			// Gewichtete Zufallsauswahl
+			float roll = Math.RandomFloat(0, totalWeight);
+			float cumulative = 0;
+			int selectedIdx = -1;
+
+			for (int w = 0; w < availableWeights.Count(); w++)
+			{
+				cumulative = cumulative + availableWeights.Get(w);
+				if (roll <= cumulative)
+				{
+					selectedIdx = w;
+					break;
+				}
+			}
+
+			// Fallback: letztes Element
+			if (selectedIdx == -1)
+			{
+				selectedIdx = availableWeights.Count() - 1;
+			}
+
+			int poolIndex = availableIndices.Get(selectedIdx);
+			SilverTrader_PoolItem selected = trader.m_poolItems.Get(poolIndex);
+			if (selected)
+			{
+				traderData.m_items.Insert(selected.classname, selected.quantity);
+				DebugLog("Rotation: Selected " + selected.classname + " (qty: " + selected.quantity.ToString() + ", weight: " + selected.weight.ToString() + ")");
+			}
+
+			// Aus verfuegbaren Optionen entfernen
+			totalWeight = totalWeight - availableWeights.Get(selectedIdx);
+			availableIndices.Remove(selectedIdx);
+			availableWeights.Remove(selectedIdx);
+		}
+	}
+
+	private void CheckRotationTimers(float delta_time)
+	{
+		if (!m_rotatingTraderCache || !m_rotationTimers)
+			return;
+
+		foreach (int traderId, SilverRotatingTrader_Config config : m_rotatingTraderCache)
+		{
+			if (!config || config.m_rotationIntervalMinutes <= 0)
+				continue;
+
+			float timer = 0;
+			if (m_rotationTimers.Contains(traderId))
+			{
+				timer = m_rotationTimers.Get(traderId);
+			}
+
+			timer = timer + delta_time;
+			float intervalSeconds = config.m_rotationIntervalMinutes * 60.0;
+
+			if (timer >= intervalSeconds)
+			{
+				timer = 0;
+
+				SilverTrader_Data traderData;
+				if (m_rotatingTraderData.Find(traderId, traderData))
+				{
+					RotateTraderPool(config, traderData);
+					SyncRotatingTraderToClients(traderId);
+					DebugLog("Rotating Trader " + traderId.ToString() + " pool rotated.");
+				}
+			}
+
+			m_rotationTimers.Set(traderId, timer);
+		}
+	}
+
+	private void SyncRotatingTraderToClients(int traderId)
+	{
+		SilverTrader_Data traderData;
+		if (!m_rotatingTraderData.Find(traderId, traderData))
+			return;
+
+		// An alle verbundenen Spieler senden
+		array<Man> players = new array<Man>;
+		g_Game.GetPlayers(players);
+
+		foreach (Man man : players)
+		{
+			PlayerBase player = PlayerBase.Cast(man);
+			if (!player || !player.GetIdentity())
+				continue;
+
+			ScriptRPC rpc = new ScriptRPC();
+			rpc.Write(SilverRPC.SILVERRPC_ROTATING_TRADER_SYNC);
+			rpc.Write(traderId);
+
+			int itemCount = 0;
+			if (traderData && traderData.m_items)
+				itemCount = traderData.m_items.Count();
+
+			rpc.Write(itemCount);
+			if (traderData && traderData.m_items)
+			{
+				for (int k = 0; k < traderData.m_items.Count(); k++)
+				{
+					rpc.Write(traderData.m_items.GetKey(k));
+					rpc.Write(traderData.m_items.GetElement(k));
+				}
+			}
+
+			rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true, player.GetIdentity());
+		}
+	}
+
+	// Client: Empfaengt neues Rotating-Trader Inventar nach Rotation
+	void RpcRotatingTraderSync(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		if (!g_Game.IsClient())
+			return;
+
+		int traderId;
+		if (!ctx.Read(traderId)) return;
+
+		int itemCount;
+		if (!ctx.Read(itemCount)) return;
+
+		// Wenn Spieler gerade diesen Trader offen hat, aktualisieren
+		SilverTrader_Data newData = new SilverTrader_Data();
+		for (int i = 0; i < itemCount; i++)
+		{
+			string itemClass;
+			float itemQty;
+			if (!ctx.Read(itemClass) || !ctx.Read(itemQty))
+				return;
+			newData.m_items.Insert(itemClass, itemQty);
+		}
+
+		if (m_traderMenu && m_traderMenu.m_active && m_traderMenu.m_traderId == traderId)
+		{
+			m_traderMenu.UpdateMetadata(newData);
+		}
+	}
+
+	// Prueft ob eine traderId zu einem rotierenden Haendler gehoert
+	bool IsRotatingTrader(int traderId)
+	{
+		if (m_rotatingTraderCache && m_rotatingTraderCache.Contains(traderId))
+			return true;
+		return false;
+	}
+
+	#ifdef ZenMap
+	private void SetZenMapMarker(SilverRotatingTrader_Config trader)
+	{
+		if (!trader || !trader.m_enableZenMapMarker)
+			return;
+
+		PluginZenMapMarkers zenMap = PluginZenMapMarkers.Cast(GetPlugin(PluginZenMapMarkers));
+		if (!zenMap)
+			return;
+
+		string markerName = trader.m_zenMapMarkerName;
+		if (markerName == "")
+			markerName = "Trader " + trader.m_traderId.ToString();
+
+		// Alten Marker entfernen falls vorhanden
+		zenMap.RemoveMarkerByName(markerName);
+
+		// Icon-Index ermitteln
+		int iconIndex = 0;
+		if (trader.m_zenMapMarkerIcon != "")
+		{
+			iconIndex = zenMap.GetIconIndex(trader.m_zenMapMarkerIcon);
+		}
+
+		// Neuen Marker erstellen
+		MapMarker newMarker = new MapMarker(trader.m_position, markerName, ARGB(255, 255, 165, 0), iconIndex);
+		if (newMarker)
+		{
+			zenMap.AddMarker(newMarker);
+			Print("[SilverBarter] ZenMap Marker gesetzt: " + markerName + " at " + trader.m_position.ToString());
+		}
+		else
+		{
+			Print("[SilverBarter] ERROR: MapMarker creation failed for " + markerName);
+		}
+	}
+
+	private void RemoveZenMapMarker(SilverRotatingTrader_Config trader)
+	{
+		if (!trader || !trader.m_enableZenMapMarker)
+			return;
+
+		PluginZenMapMarkers zenMap = PluginZenMapMarkers.Cast(GetPlugin(PluginZenMapMarkers));
+		if (!zenMap)
+			return;
+
+		string markerName = trader.m_zenMapMarkerName;
+		if (markerName == "")
+			markerName = "Trader " + trader.m_traderId.ToString();
+
+		zenMap.RemoveMarkerByName(markerName);
+		DebugLog("ZenMap Marker entfernt: " + markerName);
+	}
+	#endif
+
 	void SendTraderMenuOpen(PlayerBase player, int traderId)
 	{
 
@@ -330,17 +653,41 @@ class PluginSilverTrader extends PluginBase
 		if (!player || !player.GetIdentity())
 			return;
 
-		SilverTrader_ServerConfig trader;
-		if (!m_traderCache.Find(traderId, trader))
-			return;
+		// Rotating Trader oder normaler Trader?
+		SilverTrader_Info trader;
+		SilverTrader_Data traderData;
+		bool isRotating = IsRotatingTrader(traderId);
+
+		if (isRotating)
+		{
+			SilverRotatingTrader_Config rotConfig;
+			if (!m_rotatingTraderCache.Find(traderId, rotConfig))
+				return;
+			trader = rotConfig;
+			if (!m_rotatingTraderData.Find(traderId, traderData))
+				return;
+		}
+		else
+		{
+			SilverTrader_ServerConfig stdConfig;
+			if (!m_traderCache.Find(traderId, stdConfig))
+				return;
+			trader = stdConfig;
+			if (!m_traderData.Find(traderId, traderData))
+				return;
+		}
 
 		TraderPoint traderPoint;
-		if (!m_traderPoints.Find(traderId, traderPoint))
-			return;
-
-		SilverTrader_Data traderData;
-		if (!m_traderData.Find(traderId, traderData))
-			return;
+		if (isRotating)
+		{
+			if (!m_rotatingTraderPoints.Find(traderId, traderPoint))
+				return;
+		}
+		else
+		{
+			if (!m_traderPoints.Find(traderId, traderPoint))
+				return;
+		}
 
 		// RPC direkt senden mit einzelnen Werten (komplexe Objekte nicht serialisierbar)
 		ScriptRPC rpc = new ScriptRPC();
@@ -356,6 +703,7 @@ class PluginSilverTrader extends PluginBase
 		rpc.Write(trader.m_dumpingByBadQuality);
 		rpc.Write(trader.m_sellMaxQuantityPercent);
 		rpc.Write(trader.m_buyMaxQuantityPercent);
+		rpc.Write(isRotating);
 
 		// Filter als String-Arrays (mit Null-Check)
 		int buyFilterCount = 0;
@@ -497,13 +845,28 @@ class PluginSilverTrader extends PluginBase
 
 		DebugLog("Trade: " + sellItems.Count().ToString() + " selling, " + buyItems.Count().ToString() + " buying");
 
-		SilverTrader_ServerConfig traderInfo;
-		if (!m_traderCache.Find(traderId, traderInfo))
-			return;
-
+		bool isRotatingTrade = IsRotatingTrader(traderId);
+		SilverTrader_Info traderInfo;
 		SilverTrader_Data traderData;
-		if (!m_traderData.Find(traderId, traderData))
-			return;
+
+		if (isRotatingTrade)
+		{
+			SilverRotatingTrader_Config rotConfig;
+			if (!m_rotatingTraderCache.Find(traderId, rotConfig))
+				return;
+			traderInfo = rotConfig;
+			if (!m_rotatingTraderData.Find(traderId, traderData))
+				return;
+		}
+		else
+		{
+			SilverTrader_ServerConfig stdConfig;
+			if (!m_traderCache.Find(traderId, stdConfig))
+				return;
+			traderInfo = stdConfig;
+			if (!m_traderData.Find(traderId, traderData))
+				return;
+		}
 
 		// Distanz-Check (max 5m zum Trader)
 		float dist = vector.Distance(player.GetPosition(), traderInfo.m_position);
@@ -569,6 +932,14 @@ class PluginSilverTrader extends PluginBase
 				continue;
 
 			string classname = sellItem2.GetType();
+
+			// Rotierende Haendler: Items werden destroyed, NICHT ins Inventar aufgenommen
+			if (isRotatingTrade)
+			{
+				DebugLog("Rotating Trader " + traderId.ToString() + " destroys sold item: " + classname);
+				continue;
+			}
+
 			float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, classname);
 			float itemQuantity = CalculateItemQuantity01(sellItem2);
 			float newValue = 0;
@@ -688,8 +1059,11 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		// Trader als dirty markieren (wird im naechsten Save-Intervall gespeichert)
-		m_dirtyTraders.Insert(traderId);
+		// Trader als dirty markieren (nur normale Trader persistent speichern)
+		if (!isRotatingTrade)
+		{
+			m_dirtyTraders.Insert(traderId);
+		}
 
 		// Antwort an Client senden (einzelne Felder serialisieren)
 		PlayerBase respPlayer = GetPlayerByIdentity(sender);
@@ -809,6 +1183,17 @@ class PluginSilverTrader extends PluginBase
 					point.OnTick();
 				}
 			}
+			// Rotierende Trader ebenfalls ticken
+			if (m_rotatingTraderPoints)
+			{
+				foreach (int rotTraderId, TraderPoint rotPoint : m_rotatingTraderPoints)
+				{
+					if (rotPoint)
+					{
+						rotPoint.OnTick();
+					}
+				}
+			}
 		}
 
 		// Periodisches Speichern (nur dirty Trader)
@@ -818,6 +1203,31 @@ class PluginSilverTrader extends PluginBase
 			m_saveTimer = 0;
 			SaveDirtyTraderData();
 		}
+
+		// Rotierende Haendler Timer pruefen
+		CheckRotationTimers(delta_time);
+
+		// ZenMap Marker verzoegert setzen (warten bis ZenMap-Plugin bereit ist)
+		#ifdef ZenMap
+		if (!m_zenMapMarkersSet && m_rotatingTraderCache)
+		{
+			Print("[SilverBarter] ZENMAP define is active, checking for PluginZenMapMarkers...");
+			PluginZenMapMarkers zenCheck = PluginZenMapMarkers.Cast(GetPlugin(PluginZenMapMarkers));
+			if (zenCheck)
+			{
+				Print("[SilverBarter] PluginZenMapMarkers found, setting markers...");
+				foreach (int zenId, SilverRotatingTrader_Config zenCfg : m_rotatingTraderCache)
+				{
+					SetZenMapMarker(zenCfg);
+				}
+				m_zenMapMarkersSet = true;
+			}
+			else
+			{
+				Print("[SilverBarter] PluginZenMapMarkers NOT found yet, retrying...");
+			}
+		}
+		#endif
 	}
 
 	override void OnDestroy()
@@ -845,6 +1255,39 @@ class PluginSilverTrader extends PluginBase
 
 		if (m_dirtyTraders)
 			delete m_dirtyTraders;
+
+		// ZenMap Marker entfernen
+		#ifdef ZenMap
+		if (m_rotatingTraderCache)
+		{
+			foreach (int zenTraderId, SilverRotatingTrader_Config zenConfig : m_rotatingTraderCache)
+			{
+				RemoveZenMapMarker(zenConfig);
+			}
+		}
+		#endif
+
+		// Rotierende Haendler bereinigen
+		if (m_rotatingTraderPoints)
+		{
+			foreach (int rotId, TraderPoint rotObj : m_rotatingTraderPoints)
+			{
+				if (rotObj)
+				{
+					g_Game.ObjectDelete(rotObj);
+				}
+			}
+			delete m_rotatingTraderPoints;
+		}
+
+		if (m_rotatingTraderCache)
+			delete m_rotatingTraderCache;
+
+		if (m_rotatingTraderData)
+			delete m_rotatingTraderData;
+
+		if (m_rotationTimers)
+			delete m_rotationTimers;
 	}
 
 	// ========== BERECHNUNGS-FUNKTIONEN (Client + Server) ==========
