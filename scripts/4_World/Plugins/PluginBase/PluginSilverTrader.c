@@ -9,6 +9,7 @@ class PluginSilverTrader extends PluginBase
 
 	// Server-Seite
 	ref SilverBarterConfig m_config;
+	ref SilverRotatingTradersConfig m_rotatingConfig;
 	ref map<int, TraderPoint> m_traderPoints;
 	ref map<int, ref SilverTrader_ServerConfig> m_traderCache;
 	ref map<int, ref SilverTrader_Data> m_traderData;
@@ -71,6 +72,7 @@ class PluginSilverTrader extends PluginBase
 			m_rotationTimers = new map<int, float>;
 
 			m_config = GetSilverBarterConfig();
+			m_rotatingConfig = GetSilverRotatingTradersConfig();
 		}
 	}
 
@@ -238,13 +240,13 @@ class PluginSilverTrader extends PluginBase
 		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
 
 		// Rotierende Haendler initialisieren
-		if (m_config.m_rotatingTraders && m_config.m_rotatingTraders.Count() > 0)
+		if (m_rotatingConfig.m_rotatingTraders && m_rotatingConfig.m_rotatingTraders.Count() > 0)
 		{
-			foreach (SilverRotatingTrader_Config rotTrader : m_config.m_rotatingTraders)
+			foreach (SilverRotatingTrader_Config rotTrader : m_rotatingConfig.m_rotatingTraders)
 			{
 				SpawnRotatingTrader(rotTrader);
 			}
-			DebugLog(m_config.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
+			DebugLog(m_rotatingConfig.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
 		}
 	}
 
@@ -317,7 +319,7 @@ class PluginSilverTrader extends PluginBase
 
 		traderObj.SetAllowDamage(false);
 		traderObj.SetPosition(trader.m_position);
-		traderObj.SetOrientation(Vector(trader.m_rotation, 0, 0));
+		traderObj.SetOrientation(Vector(trader.m_orientation, 0, 0));
 
 		// Attachments hinzufuegen
 		EntityAI traderEntity;
@@ -335,7 +337,7 @@ class PluginSilverTrader extends PluginBase
 		{
 			traderPoint.SetAllowDamage(false);
 			traderPoint.SetPosition(trader.m_position);
-			traderPoint.SetOrientation(Vector(trader.m_rotation, 0, 0));
+			traderPoint.SetOrientation(Vector(trader.m_orientation, 0, 0));
 			traderPoint.InitTraderPoint(trader.m_traderId, traderObj);
 		}
 
@@ -355,15 +357,15 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
-		if (!trader.m_positions || trader.m_positions.Count() == 0)
+		if (!trader.m_spawnPositions || trader.m_spawnPositions.Count() == 0)
 		{
 			Print("[SilverBarter] ERROR: Rotating trader has no positions configured.");
 			return;
 		}
 
 		// Zufaellige Position waehlen
-		int posIndex = Math.RandomInt(0, trader.m_positions.Count());
-		vector spawnPos = trader.m_positions.Get(posIndex).ToVector();
+		int posIndex = Math.RandomInt(0, trader.m_spawnPositions.Count());
+		vector spawnPos = trader.m_spawnPositions.Get(posIndex).ToVector();
 		trader.m_position = spawnPos;
 
 		DebugLog("Rotating Trader " + trader.m_traderId.ToString() + " spawns at position index " + posIndex.ToString());
@@ -383,7 +385,7 @@ class PluginSilverTrader extends PluginBase
 
 		traderObj.SetAllowDamage(false);
 		traderObj.SetPosition(spawnPos);
-		traderObj.SetOrientation(Vector(trader.m_rotation, 0, 0));
+		traderObj.SetOrientation(Vector(trader.m_orientation, 0, 0));
 
 		// Attachments
 		EntityAI traderEntity;
@@ -401,7 +403,7 @@ class PluginSilverTrader extends PluginBase
 		{
 			traderPoint.SetAllowDamage(false);
 			traderPoint.SetPosition(spawnPos);
-			traderPoint.SetOrientation(Vector(trader.m_rotation, 0, 0));
+			traderPoint.SetOrientation(Vector(trader.m_orientation, 0, 0));
 			traderPoint.InitTraderPoint(trader.m_traderId, traderObj, true);
 		}
 
@@ -618,7 +620,7 @@ class PluginSilverTrader extends PluginBase
 		if (newMarker)
 		{
 			zenMap.AddMarker(newMarker);
-			Print("[SilverBarter] ZenMap Marker gesetzt: " + markerName + " at " + trader.m_position.ToString());
+			DebugLog("ZenMap Marker gesetzt: " + markerName + " at " + trader.m_position.ToString());
 		}
 		else
 		{
@@ -1211,20 +1213,15 @@ class PluginSilverTrader extends PluginBase
 		#ifdef ZenMap
 		if (!m_zenMapMarkersSet && m_rotatingTraderCache)
 		{
-			Print("[SilverBarter] ZENMAP define is active, checking for PluginZenMapMarkers...");
 			PluginZenMapMarkers zenCheck = PluginZenMapMarkers.Cast(GetPlugin(PluginZenMapMarkers));
 			if (zenCheck)
 			{
-				Print("[SilverBarter] PluginZenMapMarkers found, setting markers...");
 				foreach (int zenId, SilverRotatingTrader_Config zenCfg : m_rotatingTraderCache)
 				{
 					SetZenMapMarker(zenCfg);
 				}
 				m_zenMapMarkersSet = true;
-			}
-			else
-			{
-				Print("[SilverBarter] PluginZenMapMarkers NOT found yet, retrying...");
+				DebugLog("ZenMap Marker fuer rotierende Haendler gesetzt.");
 			}
 		}
 		#endif
