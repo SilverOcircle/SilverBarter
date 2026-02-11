@@ -267,6 +267,8 @@ class PluginSilverTrader extends PluginBase
 		if (FileExist(dataPath))
 		{
 			traderData.LoadFromJson(dataPath);
+			if (!traderData.m_items)
+				traderData.m_items = new map<string, float>;
 		}
 		else if (trader.m_defaultItems && trader.m_defaultItems.Count() > 0)
 		{
@@ -421,7 +423,10 @@ class PluginSilverTrader extends PluginBase
 		if (!trader || !trader.m_poolItems || trader.m_poolItems.Count() == 0)
 			return;
 
-		traderData.m_items.Clear();
+		if (!traderData.m_items)
+			traderData.m_items = new map<string, float>;
+		else
+			traderData.m_items.Clear();
 
 		int slotsToFill = Math.Min(trader.m_activeSlots, trader.m_poolItems.Count());
 
@@ -746,7 +751,9 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// Trader-Data (Items) als Key-Value Paare
-		int itemCount = traderData.m_items.Count();
+		int itemCount = 0;
+		if (traderData.m_items)
+			itemCount = traderData.m_items.Count();
 		rpc.Write(itemCount);
 		for (int k = 0; k < itemCount; k++)
 		{
@@ -840,10 +847,17 @@ class PluginSilverTrader extends PluginBase
 			if (!ctx.Read(buyClass)) return;
 			if (!ctx.Read(buyQty)) return;
 			if (buyQty > 50)
-				buyQty = 50; // Cap gegen Spawn-Loop-Abuse
+				buyQty = 50;
 			if (buyQty > 0)
 			{
-				buyItems.Insert(buyClass, buyQty);
+				if (buyItems.Contains(buyClass))
+				{
+					buyItems.Set(buyClass, Math.Min(50, buyItems.Get(buyClass) + buyQty));
+				}
+				else
+				{
+					buyItems.Insert(buyClass, buyQty);
+				}
 			}
 		}
 
@@ -880,41 +894,6 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
-		// Server-seitige Validierung
-		int resultPrice = 0;
-
-		// Verkaufs-Items validieren und Preis berechnen
-		foreach (ItemBase sellItem1 : sellItems)
-		{
-			if (!sellItem1)
-				continue;
-
-			// Ownership-Check
-			if (!IsItemOwnedByPlayer(sellItem1, player))
-				continue;
-
-			if (CanSellItem(traderInfo, sellItem1))
-			{
-				resultPrice = resultPrice + CalculateSellPrice(traderInfo, traderData, sellItem1);
-			}
-		}
-
-		// Kauf-Items validieren und Preis berechnen
-		foreach (string buyClassname1, float buyQuantity1 : buyItems)
-		{
-			if (CanBuyItem(traderInfo, buyClassname1))
-			{
-				resultPrice = resultPrice - CalculateBuyPrice(traderInfo, traderData, buyClassname1, buyQuantity1);
-			}
-		}
-
-		// Balance-Check (kein negativer Trade ohne Admin)
-		if (resultPrice < 0)
-		{
-			DebugLog("Trade denied: Negative price for " + sender.GetName());
-			return;
-		}
-
 		// Barter-Regel: Verkauf nur mit Gegenkauf erlaubt (kein einseitiges Abgeben)
 		if (sellItems.Count() > 0 && buyItems.Count() == 0)
 		{
@@ -922,22 +901,102 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
-		// Trade ausfuehren
-		// Verkaufs-Items verarbeiten
-		foreach (ItemBase sellItem2 : sellItems)
+		// === PHASE 1: Sell-Items validieren + SellMaxQuantity enforced ===
+		array<ItemBase> validSellItems = new array<ItemBase>;
+		map<string, float> sellCounter = new map<string, float>;
+		foreach (ItemBase sellItem1 : sellItems)
 		{
-			if (!sellItem2)
+			if (!sellItem1)
+				continue;
+			if (!IsItemOwnedByPlayer(sellItem1, player))
+				continue;
+			if (!CanSellItem(traderInfo, sellItem1))
 				continue;
 
-			if (!IsItemOwnedByPlayer(sellItem2, player))
+			string sellClass = sellItem1.GetType();
+			float sellQty01 = CalculateItemQuantity01(sellItem1);
+			float currentSellCount = 0;
+			if (sellCounter.Contains(sellClass))
+				currentSellCount = sellCounter.Get(sellClass);
+
+			float sellMax = CalculateSellMaxQuantity(traderInfo, sellClass);
+			if (currentSellCount + sellQty01 > sellMax)
+			{
+				DebugLog("Trade denied: SellMaxQuantity exceeded for " + sellClass);
+				continue;
+			}
+
+			// Storage-Kapazitaet pruefen (nur normale Trader)
+			if (!isRotatingTrade)
+			{
+				float storedQty = 0;
+				if (traderData.m_items.Contains(sellClass))
+					storedQty = traderData.m_items.Get(sellClass);
+				float storageMax = CalculateTraderItemQuantityMax(traderInfo, sellClass);
+				if (storedQty + currentSellCount + sellQty01 > storageMax)
+				{
+					DebugLog("Trade denied: Storage full for " + sellClass);
+					continue;
+				}
+			}
+
+			sellCounter.Set(sellClass, currentSellCount + sellQty01);
+			validSellItems.Insert(sellItem1);
+		}
+
+		// === PHASE 2: Buy-Items gegen Stock + BuyMaxQuantity validieren ===
+		map<string, float> approvedBuyItems = new map<string, float>;
+		foreach (string buyClassname1, float buyQuantity1 : buyItems)
+		{
+			if (!CanBuyItem(traderInfo, buyClassname1))
 				continue;
 
-			if (!CanSellItem(traderInfo, sellItem2))
+			if (!traderData.m_items.Contains(buyClassname1))
+			{
+				DebugLog("Trade denied: Item not in stock: " + buyClassname1);
 				continue;
+			}
 
-			string classname = sellItem2.GetType();
+			// BuyMaxQuantity serverseitig enforced
+			float buyMax = CalculateBuyMaxQuantity(traderInfo, buyClassname1);
+			float clampedQty = Math.Min(buyQuantity1, buyMax);
 
-			// Rotierende Haendler: Items werden destroyed, NICHT ins Inventar aufgenommen
+			float availableStock = traderData.m_items.Get(buyClassname1);
+			float approvedQty = Math.Min(clampedQty, availableStock);
+			if (approvedQty <= 0)
+			{
+				DebugLog("Trade denied: Insufficient stock for " + buyClassname1);
+				continue;
+			}
+
+			approvedBuyItems.Insert(buyClassname1, approvedQty);
+		}
+
+		// === PHASE 3: Preis nur fuer validierte Items berechnen ===
+		int resultPrice = 0;
+
+		foreach (ItemBase sellItem2 : validSellItems)
+		{
+			resultPrice = resultPrice + CalculateSellPrice(traderInfo, traderData, sellItem2);
+		}
+
+		foreach (string buyClassname2, float buyQuantity2 : approvedBuyItems)
+		{
+			resultPrice = resultPrice - CalculateBuyPrice(traderInfo, traderData, buyClassname2, buyQuantity2);
+		}
+
+		if (resultPrice < 0)
+		{
+			DebugLog("Trade denied: Negative price for " + sender.GetName());
+			return;
+		}
+
+		// === PHASE 4: Trade ausfuehren ===
+		// Sell-Items ins Trader-Inventar aufnehmen
+		foreach (ItemBase sellItem3 : validSellItems)
+		{
+			string classname = sellItem3.GetType();
+
 			if (isRotatingTrade)
 			{
 				DebugLog("Rotating Trader " + traderId.ToString() + " destroys sold item: " + classname);
@@ -945,7 +1004,7 @@ class PluginSilverTrader extends PluginBase
 			}
 
 			float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, classname);
-			float itemQuantity = CalculateItemQuantity01(sellItem2);
+			float itemQuantity = CalculateItemQuantity01(sellItem3);
 			float newValue = 0;
 
 			if (traderData.m_items.Contains(classname))
@@ -962,67 +1021,55 @@ class PluginSilverTrader extends PluginBase
 			DebugLog("Trader " + traderId.ToString() + " buys: " + classname);
 		}
 
-		// Kauf-Items verarbeiten
-		foreach (string buyClassname2, float buyQuantity2 : buyItems)
+		// Buy-Items: Bestand reduzieren
+		foreach (string buyClassname3, float buyQuantity3 : approvedBuyItems)
 		{
-			if (!CanBuyItem(traderInfo, buyClassname2))
-				continue;
-
-			if (traderData.m_items.Contains(buyClassname2) && traderData.m_items.Get(buyClassname2) >= buyQuantity2)
+			float newValue2 = Math.Max(0, traderData.m_items.Get(buyClassname3) - buyQuantity3);
+			if (newValue2 == 0)
 			{
-				float newValue2 = Math.Max(0, traderData.m_items.Get(buyClassname2) - buyQuantity2);
-				if (newValue2 == 0)
-				{
-					traderData.m_items.Remove(buyClassname2);
-				}
-				else
-				{
-					traderData.m_items.Set(buyClassname2, newValue2);
-				}
-
-				DebugLog("Trader " + traderId.ToString() + " sells: " + buyClassname2);
+				traderData.m_items.Remove(buyClassname3);
 			}
+			else
+			{
+				traderData.m_items.Set(buyClassname3, newValue2);
+			}
+			DebugLog("Trader " + traderId.ToString() + " sells: " + buyClassname3);
 		}
 
 		// Verkaufte Items loeschen (rueckwaerts, Attachments vor Container)
-		for (int i = sellItems.Count() - 1; i >= 0; i--)
+		for (int i = validSellItems.Count() - 1; i >= 0; i--)
 		{
-			ItemBase sellItem3 = sellItems[i];
-			if (sellItem3 && !sellItem3.IsPendingDeletion() && IsItemOwnedByPlayer(sellItem3, player))
+			ItemBase sellItem4 = validSellItems[i];
+			if (sellItem4 && !sellItem4.IsPendingDeletion() && IsItemOwnedByPlayer(sellItem4, player))
 			{
-				g_Game.ObjectDelete(sellItem3);
+				g_Game.ObjectDelete(sellItem4);
 			}
 		}
 
-		// Gekaufte Items spawnen
-		foreach (string buyClassname3, float buyQuantity3 : buyItems)
+		// Gekaufte Items spawnen (nur freigegebene Items mit validierter Menge)
+		foreach (string buyClassname4, float buyQuantity4 : approvedBuyItems)
 		{
-			if (!CanBuyItem(traderInfo, buyClassname3))
+
+			if (buyQuantity4 <= 0)
 			{
-				DebugLog("SPAWN SKIP: CanBuyItem false for " + buyClassname3);
+				DebugLog("SPAWN SKIP: buyQuantity is 0 for " + buyClassname4);
 				continue;
 			}
 
-			if (buyQuantity3 <= 0)
-			{
-				DebugLog("SPAWN SKIP: buyQuantity is 0 for " + buyClassname3);
-				continue;
-			}
-
-			float calcQuantity = buyQuantity3;
+			float calcQuantity = buyQuantity4;
 			while (calcQuantity > 0)
 			{
 				ItemBase buyEntity = null;
 				InventoryLocation invLoc = new InventoryLocation;
-				bool foundInvSlot = player.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname3, FindInventoryLocationType.ANY, invLoc);
+				bool foundInvSlot = player.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname4, FindInventoryLocationType.ANY, invLoc);
 
 				if (foundInvSlot)
 				{
-					buyEntity = ItemBase.Cast(player.GetInventory().LocationCreateEntity(invLoc, buyClassname3, ECE_IN_INVENTORY, RF_DEFAULT));
+					buyEntity = ItemBase.Cast(player.GetInventory().LocationCreateEntity(invLoc, buyClassname4, ECE_IN_INVENTORY, RF_DEFAULT));
 				}
 				else
 				{
-					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname3, player.GetPosition()));
+					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname4, player.GetPosition()));
 				}
 
 				if (buyEntity)
@@ -1042,7 +1089,7 @@ class PluginSilverTrader extends PluginBase
 							buyMagazine.ServerSetAmmoCount(0);
 						}
 					}
-					else if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname3 + " liquidContainerType"))
+					else if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname4 + " liquidContainerType"))
 					{
 						buyEntity.SetQuantityNormalized(0);
 					}
@@ -1051,11 +1098,11 @@ class PluginSilverTrader extends PluginBase
 						buyEntity.SetQuantityNormalized(spawnQuantity01);
 					}
 
-					DebugLog("SPAWN OK: " + buyClassname3 + " (inv=" + foundInvSlot.ToString() + ", qty=" + spawnQuantity01.ToString() + ")");
+					DebugLog("SPAWN OK: " + buyClassname4 + " (inv=" + foundInvSlot.ToString() + ", qty=" + spawnQuantity01.ToString() + ")");
 				}
 				else
 				{
-					Print("[SilverBarter] SPAWN FAILED: " + buyClassname3 + " could not be created (inv=" + foundInvSlot.ToString() + ")");
+					Print("[SilverBarter] SPAWN FAILED: " + buyClassname4 + " could not be created (inv=" + foundInvSlot.ToString() + ")");
 					break;
 				}
 
@@ -1063,21 +1110,28 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
+		// Pruefen ob tatsaechlich etwas getauscht wurde
+		bool tradeSuccess = (validSellItems.Count() > 0 || approvedBuyItems.Count() > 0);
+
+		if (!tradeSuccess)
+		{
+			DebugLog("Trade result: Nothing traded for " + sender.GetName());
+		}
+
 		// Trader als dirty markieren (nur normale Trader persistent speichern)
-		if (!isRotatingTrade)
+		if (tradeSuccess && !isRotatingTrade)
 		{
 			m_dirtyTraders.Insert(traderId);
 		}
 
-		// Antwort an Client senden (einzelne Felder serialisieren)
+		// Antwort an Client senden
 		PlayerBase respPlayer = GetPlayerByIdentity(sender);
 		if (respPlayer)
 		{
 			ScriptRPC respRpc = new ScriptRPC();
 			respRpc.Write(SilverRPC.SILVERRPC_ACTION_TRADER);
-			respRpc.Write(true); // Erfolg-Flag
+			respRpc.Write(tradeSuccess);
 
-			// Items einzeln schreiben
 			int respItemCount = 0;
 			if (traderData && traderData.m_items)
 				respItemCount = traderData.m_items.Count();
@@ -1092,7 +1146,7 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 			respRpc.Send(respPlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true, sender);
-			DebugLog("Trade response sent with " + respItemCount.ToString() + " items");
+			DebugLog("Trade response sent: success=" + tradeSuccess.ToString() + ", items=" + respItemCount.ToString());
 		}
 	}
 
@@ -1535,33 +1589,40 @@ class PluginSilverTrader extends PluginBase
 		rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true);
 	}
 
+	private bool IsCategoryEnabled(array<string> categories, array<bool> enabledCategories, string categoryName)
+	{
+		int idx = categories.Find(categoryName);
+		if (idx < 0 || idx >= enabledCategories.Count())
+			return false;
+		return enabledCategories.Get(idx);
+	}
+
 	bool FilterByCategories(array<string> categories, array<bool> enabledCategories, string classname)
 	{
 		TStringArray inventorySlots = new TStringArray;
 
 		if (g_Game.IsKindOf(classname, "Grenade_Base") || g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
 		{
-			return enabledCategories.Get(categories.Find("weapons"));
+			return IsCategoryEnabled(categories, enabledCategories, "weapons");
 		}
 
 		if (g_Game.IsKindOf(classname, "Ammunition_Base") || classname.IndexOf("AmmoBox") == 0)
 		{
-			return enabledCategories.Get(categories.Find("ammo"));
+			return IsCategoryEnabled(categories, enabledCategories, "ammo");
 		}
 
 		if (g_Game.IsKindOf(classname, "Magazine_Base"))
 		{
-			return enabledCategories.Get(categories.Find("magazines"));
+			return IsCategoryEnabled(categories, enabledCategories, "magazines");
 		}
 
-		// Werkzeuge aus statischem Array pruefen
 		if (TOOL_CLASSES)
 		{
 			foreach (string toolClass : TOOL_CLASSES)
 			{
 				if (g_Game.IsKindOf(classname, toolClass))
 				{
-					return enabledCategories.Get(categories.Find("tools"));
+					return IsCategoryEnabled(categories, enabledCategories, "tools");
 				}
 			}
 		}
@@ -1576,11 +1637,11 @@ class PluginSilverTrader extends PluginBase
 				inventorySlot.ToLower();
 				if (inventorySlot.IndexOf("weapon") == 0)
 				{
-					return enabledCategories.Get(categories.Find("attachments"));
+					return IsCategoryEnabled(categories, enabledCategories, "attachments");
 				}
 				else if (inventorySlot == "melee")
 				{
-					return enabledCategories.Get(categories.Find("tools"));
+					return IsCategoryEnabled(categories, enabledCategories, "tools");
 				}
 			}
 		}
@@ -1595,38 +1656,37 @@ class PluginSilverTrader extends PluginBase
 				attachment.ToLower();
 				if (attachment.IndexOf("batteryd") == 0)
 				{
-					return enabledCategories.Get(categories.Find("electronic"));
+					return IsCategoryEnabled(categories, enabledCategories, "electronic");
 				}
 			}
 		}
 
 		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " medicalItem") == 1)
 		{
-			return enabledCategories.Get(categories.Find("medical"));
+			return IsCategoryEnabled(categories, enabledCategories, "medical");
 		}
 
 		if (g_Game.IsKindOf(classname, "Edible_Base"))
 		{
-			return enabledCategories.Get(categories.Find("food"));
+			return IsCategoryEnabled(categories, enabledCategories, "food");
 		}
 
 		if (g_Game.IsKindOf(classname, "Clothing_Base"))
 		{
-			return enabledCategories.Get(categories.Find("clothing"));
+			return IsCategoryEnabled(categories, enabledCategories, "clothing");
 		}
 
 		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
 		{
-			return enabledCategories.Get(categories.Find("vehicle_parts"));
+			return IsCategoryEnabled(categories, enabledCategories, "vehicle_parts");
 		}
 
-		// Skills/Upgrades (ZenSkills Items)
 		if (classname.IndexOf("ZenSkills_") == 0)
 		{
-			return enabledCategories.Get(categories.Find("base_building"));
+			return IsCategoryEnabled(categories, enabledCategories, "base_building");
 		}
 
-		return enabledCategories.Get(categories.Find("other"));
+		return IsCategoryEnabled(categories, enabledCategories, "other");
 	}
 
 	bool CanSellItem(SilverTrader_Info traderInfo, ItemBase item)

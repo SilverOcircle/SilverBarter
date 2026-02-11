@@ -431,8 +431,19 @@ class SilverTraderMenu extends UIScriptedMenu
 			if (btn.GetUserID() == 2002)
 			{
 				index = w.GetUserID();
+				if (index < 0 || index >= m_buyData.Count())
+					continue;
 				buyData = m_buyData.Get(index);
-				result.Insert(buyData.m_classname, buyData.m_selectedQuantity);
+				if (!buyData)
+					continue;
+				if (result.Contains(buyData.m_classname))
+				{
+					result.Set(buyData.m_classname, result.Get(buyData.m_classname) + buyData.m_selectedQuantity);
+				}
+				else
+				{
+					result.Insert(buyData.m_classname, buyData.m_selectedQuantity);
+				}
 			}
 		}
 	}
@@ -732,29 +743,40 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		Widget mainWidget = btn.GetParent().GetParent().GetParent().GetParent();
 		int id = mainWidget.GetUserID();
+		if (id < 0 || id >= m_buyData.Count())
+			return;
 
 		ButtonWidget mainButton = ButtonWidget.Cast(mainWidget.FindAnyWidget("ItemActionButton"));
 		SelectBuyItem(mainButton, true);
 
 		SilverTraderMenu_BuyData mainParam = m_buyData.Get(id);
+		if (!mainParam)
+			return;
 
 		float stepSize = pluginTrader.CalculateItemSelectedQuantityStep(mainParam.m_classname);
-		if (value < 0 && mainParam.m_selectedQuantity <= 1)
+
+		// Konsistente Step-Logik: im Sub-1-Bereich immer stepSize verwenden
+		float actualStep = 0;
+		if (stepSize < 1)
 		{
-			value = stepSize * -1;
+			if (value > 0 && mainParam.m_selectedQuantity < 1)
+				actualStep = stepSize;
+			else if (value < 0 && mainParam.m_selectedQuantity <= 1)
+				actualStep = stepSize * -1;
+			else if (value > 0)
+				actualStep = 1;
+			else
+				actualStep = -1;
 		}
-		else if (value > 0 && mainParam.m_selectedQuantity < 1)
+		else
 		{
-			value = stepSize;
+			actualStep = value;
 		}
 
-		if ((mainParam.m_selectedQuantity + value) > 0)
-		{
-			mainParam.m_selectedQuantity = mainParam.m_selectedQuantity + value;
-			mainParam.m_selectedQuantity = Math.Min(mainParam.m_selectedQuantity, mainParam.m_maxBuyQuantity);
-		}
+		float newQty = mainParam.m_selectedQuantity + actualStep;
+		newQty = Math.Clamp(newQty, stepSize, mainParam.m_maxBuyQuantity);
+		mainParam.m_selectedQuantity = newQty;
 
-		// Preis verstecken - Balken-System zeigt Tauschwert
 		UpdateItemInfoSelectedQuantity(mainWidget, mainParam.m_classname, mainParam.m_selectedQuantity, mainParam.m_maxBuyQuantity);
 		UpdateCurrentPriceProgress();
 	}
