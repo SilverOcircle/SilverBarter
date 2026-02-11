@@ -68,34 +68,46 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void CleanupBuyUI()
 	{
-		foreach (Widget w2 : m_buyWidgetsCache)
+		if (m_buyWidgetsCache)
 		{
-			w2.Unlink();
+			foreach (Widget w2 : m_buyWidgetsCache)
+			{
+				w2.Unlink();
+			}
+			m_buyWidgetsCache.Clear();
 		}
-		m_buyWidgetsCache.Clear();
 
-		foreach (SilverTraderMenu_BuyData buyData : m_buyData)
+		if (m_buyData)
 		{
-			delete buyData;
+			foreach (SilverTraderMenu_BuyData buyData : m_buyData)
+			{
+				delete buyData;
+			}
+			m_buyData.Clear();
 		}
-		m_buyData.Clear();
 
-		foreach (EntityAI item : m_previewItemsCache)
+		if (m_previewItemsCache)
 		{
-			g_Game.ObjectDelete(item);
+			foreach (EntityAI item : m_previewItemsCache)
+			{
+				g_Game.ObjectDelete(item);
+			}
+			m_previewItemsCache.Clear();
 		}
-		m_previewItemsCache.Clear();
 	}
 
 	void CleanupUI()
 	{
 		CleanupBuyUI();
 
-		foreach (Widget w1 : m_sellWidgetsCache)
+		if (m_sellWidgetsCache)
 		{
-			w1.Unlink();
+			foreach (Widget w1 : m_sellWidgetsCache)
+			{
+				w1.Unlink();
+			}
+			m_sellWidgetsCache.Clear();
 		}
-		m_sellWidgetsCache.Clear();
 	}
 
 	void InitInventorySell()
@@ -400,6 +412,12 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_blockBarter = false;
 		}
 
+		// Button-State final: blockBarter hat Vorrang
+		if (m_blockBarter)
+		{
+			m_barterBtn.Enable(false);
+		}
+
 		delete sellCounter;
 		m_currentBarterProgress = value;
 	}
@@ -582,21 +600,35 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (m_traderInfo)
 		{
 			delete m_traderInfo;
+			m_traderInfo = null;
 		}
 
 		if (m_traderData)
 		{
 			delete m_traderData;
+			m_traderData = null;
 		}
 
 		if (m_buyData)
+		{
 			delete m_buyData;
+			m_buyData = null;
+		}
 		if (m_sellWidgetsCache)
+		{
 			delete m_sellWidgetsCache;
+			m_sellWidgetsCache = null;
+		}
 		if (m_buyWidgetsCache)
+		{
 			delete m_buyWidgetsCache;
+			m_buyWidgetsCache = null;
+		}
 		if (m_filterData)
+		{
 			delete m_filterData;
+			m_filterData = null;
+		}
 
 		Close();
 	}
