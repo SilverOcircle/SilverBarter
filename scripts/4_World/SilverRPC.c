@@ -21,7 +21,12 @@ class SilverRPCManager
 	{
 		Init();
 
-		if (!s_handlers.Contains(rpcType))
+		// Alte Handler fuer diesen rpcType entfernen (verhindert Dangling Pointer nach Reconnect)
+		if (s_handlers.Contains(rpcType))
+		{
+			s_handlers.Get(rpcType).Clear();
+		}
+		else
 		{
 			s_handlers.Insert(rpcType, new array<ref SilverRPCHandler>);
 		}
