@@ -1443,7 +1443,7 @@ class PluginSilverTrader extends PluginBase
 
 	float CalculateItemQuantity01(ItemBase item)
 	{
-		if (item.GetLiquidTypeInit() != 0)
+		if (item.GetLiquidTypeInit() != 0 && !item.IsInherited(Bottle_Base))
 			return 1;
 
 		float item_quantity = item.GetQuantity();
