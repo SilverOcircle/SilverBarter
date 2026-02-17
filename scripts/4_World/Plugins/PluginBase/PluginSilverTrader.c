@@ -6,6 +6,7 @@ class PluginSilverTrader extends PluginBase
 
 	// Client-Seite
 	ref SilverTraderMenu m_traderMenu;
+	ref array<string> m_quantityPriceClassnamesClient;
 
 	// Server-Seite
 	ref SilverBarterConfig m_config;
@@ -156,6 +157,17 @@ class PluginSilverTrader extends PluginBase
 			ovEntry.classname = ovClass;
 			ovEntry.commission = ovComm;
 			traderInfo.m_commissionOverrides.Insert(ovEntry);
+		}
+
+		// QuantityPrice-Classnames lesen (global, client-only)
+		int qpCount;
+		if (!ctx.Read(qpCount)) return;
+		m_quantityPriceClassnamesClient = new array<string>;
+		for (int qp = 0; qp < qpCount; qp++)
+		{
+			string qpClass;
+			if (!ctx.Read(qpClass)) return;
+			m_quantityPriceClassnamesClient.Insert(qpClass);
 		}
 
 		// Items lesen
@@ -748,6 +760,16 @@ class PluginSilverTrader extends PluginBase
 		{
 			rpc.Write(trader.m_commissionOverrides.Get(ov).classname);
 			rpc.Write(trader.m_commissionOverrides.Get(ov).commission);
+		}
+
+		// QuantityPrice-Classnames (global)
+		int qpCount = 0;
+		if (m_config && m_config.m_quantityPriceClassnames)
+			qpCount = m_config.m_quantityPriceClassnames.Count();
+		rpc.Write(qpCount);
+		for (int qp = 0; qp < qpCount; qp++)
+		{
+			rpc.Write(m_config.m_quantityPriceClassnames.Get(qp));
 		}
 
 		// Trader-Data (Items) als Key-Value Paare
@@ -1444,7 +1466,16 @@ class PluginSilverTrader extends PluginBase
 	float CalculateItemQuantity01(ItemBase item)
 	{
 		if (item.GetLiquidTypeInit() != 0)
+		{
+			if (IsQuantityPriceItem(item.GetType()))
+			{
+				float liqQty = item.GetQuantity();
+				int liqMax = item.GetQuantityMax();
+				if (liqMax > 0)
+					return Math.Min(liqQty, liqMax) / (float)liqMax;
+			}
 			return 1;
+		}
 
 		float item_quantity = item.GetQuantity();
 		int max_quantity = item.GetQuantityMax();
@@ -1468,6 +1499,29 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		return 1;
+	}
+
+	bool IsQuantityPriceItem(string classname)
+	{
+		if (m_config && m_config.m_quantityPriceClassnames)
+		{
+			foreach (string qpClass : m_config.m_quantityPriceClassnames)
+			{
+				if (g_Game.IsKindOf(classname, qpClass))
+					return true;
+			}
+		}
+
+		if (m_quantityPriceClassnamesClient)
+		{
+			foreach (string qpClass2 : m_quantityPriceClassnamesClient)
+			{
+				if (g_Game.IsKindOf(classname, qpClass2))
+					return true;
+			}
+		}
+
+		return false;
 	}
 
 	float CalculateSellMaxQuantity(SilverTrader_Info traderInfo, string classname)

@@ -10,6 +10,7 @@ class SilverBarterConfig
 
 	// Globale Einstellungen
 	bool m_debugMode;
+	ref array<string> m_quantityPriceClassnames;
 
 	// Trader-Konfiguration
 	ref array<ref SilverTrader_ServerConfig> m_traders;
