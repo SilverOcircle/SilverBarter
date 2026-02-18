@@ -4,6 +4,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	const float SELL_ITEM_DEPTH_OFFSET = 30;
 	const float SELL_ITEM_HEIGHT_OFFSET = 2;
 	const float PROGRESS_BAR_PRICE_DIVIDER = 25;
+	const int PREVIEW_POOL_CAP = 100;
 
 	bool m_active = false;
 	bool m_dirty = false;
@@ -25,7 +26,13 @@ class SilverTraderMenu extends UIScriptedMenu
 	ref array<ref Widget> m_sellWidgetsCache;
 	ref array<ref Widget> m_buyWidgetsCache;
 	ref array<ref SilverTraderMenu_BuyData> m_buyData;
-	ref array<EntityAI> m_previewItemsCache;
+
+	// Lazy-Preview: Pool (classname→Entity) + aktive Zuordnung (index→Entity)
+	ref map<string, EntityAI> m_previewPool;
+	ref map<int, EntityAI> m_previewByIndex;
+	float m_buyRowHeight = 0;
+	float m_buyPanelHeight = 0;
+	float m_lastScrollPos01 = -1;
 
 	ref array<string> m_filterData;
 	static ref array<bool> m_filterMemory;
@@ -38,7 +45,8 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_sellWidgetsCache = new array<ref Widget>;
 		m_buyWidgetsCache = new array<ref Widget>;
 		m_buyData = new array<ref SilverTraderMenu_BuyData>;
-		m_previewItemsCache = new array<EntityAI>;
+		m_previewPool = new map<string, EntityAI>;
+		m_previewByIndex = new map<int, EntityAI>;
 		m_filterData = new array<string>;
 
 		if (!m_filterMemory)
@@ -68,6 +76,22 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void CleanupBuyUI()
 	{
+		// Aktive Preview-Entities in Pool verschieben statt löschen
+		if (m_previewByIndex)
+		{
+			foreach (int idx, EntityAI entity : m_previewByIndex)
+			{
+				if (!entity)
+					continue;
+				string cn = entity.GetType();
+				if (m_previewPool && m_previewPool.Count() < PREVIEW_POOL_CAP && !m_previewPool.Contains(cn))
+					m_previewPool.Insert(cn, entity);
+				else
+					g_Game.ObjectDelete(entity);
+			}
+			m_previewByIndex.Clear();
+		}
+
 		if (m_buyWidgetsCache)
 		{
 			foreach (Widget w2 : m_buyWidgetsCache)
@@ -84,15 +108,6 @@ class SilverTraderMenu extends UIScriptedMenu
 				delete buyData;
 			}
 			m_buyData.Clear();
-		}
-
-		if (m_previewItemsCache)
-		{
-			foreach (EntityAI item : m_previewItemsCache)
-			{
-				g_Game.ObjectDelete(item);
-			}
-			m_previewItemsCache.Clear();
 		}
 	}
 
@@ -213,6 +228,9 @@ class SilverTraderMenu extends UIScriptedMenu
 	{
 		CleanupBuyUI();
 		m_buyItemsPanel.VScrollToPos01(0);
+		m_lastScrollPos01 = -1;
+		m_buyRowHeight = 0;    // neu messen nach Rebuild
+		m_buyPanelHeight = 0;
 
 		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (!pluginTrader)
@@ -226,16 +244,13 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			if (pluginTrader.FilterByCategories(m_filterData, m_filterMemory, classname))
 			{
-				ItemBase item = ItemBase.Cast(g_Game.CreateObject(classname, "0 0 0", true, false, false));
-				if (item)
-				{
-					nextItemIndex = InitItemBuy(nextItemIndex + 1, item, classname, quantity, pluginTrader);
-				}
+				nextItemIndex = InitItemBuy(nextItemIndex + 1, classname, quantity, pluginTrader);
 			}
 		}
 	}
 
-	int InitItemBuy(int index, ItemBase item, string classname, float quantity, PluginSilverTrader pluginTrader)
+	// Kein ItemBase-Parameter mehr - Preview wird lazy in UpdateLazyPreviews() gesetzt
+	int InitItemBuy(int index, string classname, float quantity, PluginSilverTrader pluginTrader)
 	{
 		int screenWidth;
 		int screenHeight;
@@ -256,7 +271,12 @@ class SilverTraderMenu extends UIScriptedMenu
 		float w, h;
 		float contentWidth = m_sellItemsPanel.GetContentWidth();
 		itemBuy.GetSize(w, h);
-		itemBuy.SetPos(0, (h + SELL_ITEM_HEIGHT_OFFSET) * index);
+
+		// Zeilenhöhe beim ersten Item merken
+		if (m_buyRowHeight <= 0)
+			m_buyRowHeight = h + SELL_ITEM_HEIGHT_OFFSET;
+
+		itemBuy.SetPos(0, m_buyRowHeight * index);
 		itemBuy.SetSize(contentWidth, h);
 		itemBuy.SetUserID(index);
 
@@ -269,14 +289,18 @@ class SilverTraderMenu extends UIScriptedMenu
 		ButtonWidget actionButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("ItemActionButton"));
 		actionButton.SetUserID(2001);
 
-		ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemBuy.FindAnyWidget("ItemPreviewWidget"));
-		previewWidget.SetItem(item);
-		previewWidget.SetView(item.GetViewIndex());
-		previewWidget.SetModelPosition(Vector(0, 0, 1));
-		m_previewItemsCache.Insert(item);
+		// PreviewWidget bleibt leer - wird lazy befüllt
+		// DisplayName direkt aus Config lesen (kein CreateObject nötig)
+		string displayName = classname;
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " displayName"))
+			displayName = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " displayName");
+		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname + " displayName"))
+			displayName = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " displayName");
+		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname + " displayName"))
+			displayName = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " displayName");
 
 		WidgetSetWidth(itemBuy, "ItemNameWidget", contentWidth - 220);
-		WidgetTrySetText(itemBuy, "ItemNameWidget", item.GetDisplayName());
+		WidgetTrySetText(itemBuy, "ItemNameWidget", displayName);
 
 		// Preis verstecken - Balken-System zeigt Tauschwert
 		WidgetTrySetText(itemBuy, "ItemPriceWidget", " ");
@@ -293,6 +317,120 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_buyWidgetsCache.Insert(itemBuy);
 		m_buyData.Insert(actionBtnParam);
 		return index;
+	}
+
+	// Spawnt/despawnt Preview-Entities je nach Sichtbarkeit, max 4 Spawns pro Frame
+	private void UpdateLazyPreviews()
+	{
+		if (!m_buyWidgetsCache || m_buyWidgetsCache.Count() == 0 || m_buyRowHeight <= 0)
+			return;
+
+		// Panel-Höhe lazy ermitteln (erst nach erstem Layout-Pass verfügbar)
+		if (m_buyPanelHeight <= 0)
+		{
+			float pw, ph;
+			m_buyItemsPanel.GetSize(pw, ph);
+			m_buyPanelHeight = ph;
+			if (m_buyPanelHeight <= 0)
+				return;
+		}
+
+		float scrollPos01 = m_buyItemsPanel.GetVScrollPos01();
+		if (Math.AbsFloat(scrollPos01 - m_lastScrollPos01) < 0.001)
+			return;
+
+		float contentH = m_buyItemsPanel.GetContentHeight();
+		float scrollPx = scrollPos01 * Math.Max(0, contentH - m_buyPanelHeight);
+		float visibleTop = scrollPx - m_buyRowHeight;
+		float visibleBottom = scrollPx + m_buyPanelHeight + m_buyRowHeight;
+
+		int count = m_buyWidgetsCache.Count();
+
+		// Pass 1: Despawn - alle außerhalb des Sichtbereichs → Pool
+		// Iteration über Widget-Indizes (nicht über die Map) → Remove() sicher
+		for (int di = 0; di < count; di++)
+		{
+			if (!m_previewByIndex.Contains(di))
+				continue;
+			float rowTop = m_buyRowHeight * di;
+			if (rowTop < visibleBottom && (rowTop + m_buyRowHeight) > visibleTop)
+				continue; // noch sichtbar
+
+			// Preview entkoppeln
+			Widget dw = m_buyWidgetsCache.Get(di);
+			if (dw)
+			{
+				ItemPreviewWidget pv = ItemPreviewWidget.Cast(dw.FindAnyWidget("ItemPreviewWidget"));
+				if (pv)
+					pv.SetItem(null);
+			}
+
+			EntityAI de = m_previewByIndex.Get(di);
+			if (de)
+			{
+				string dcn = de.GetType();
+				if (m_previewPool.Count() < PREVIEW_POOL_CAP && !m_previewPool.Contains(dcn))
+					m_previewPool.Insert(dcn, de);
+				else
+					g_Game.ObjectDelete(de);
+			}
+			m_previewByIndex.Remove(di);
+		}
+
+		// Pass 2: Spawn - nur im sichtbaren Bereich, max 4 pro Frame
+		// Despawns sind fertig → break nach Limit ist korrekt
+		int startIndex = (int)Math.Floor(visibleTop / m_buyRowHeight);
+		int endIndex = (int)Math.Ceil(visibleBottom / m_buyRowHeight);
+		startIndex = Math.Clamp(startIndex, 0, count - 1);
+		endIndex = Math.Clamp(endIndex, 0, count - 1);
+
+		int spawnsThisFrame = 0;
+		for (int i = startIndex; i <= endIndex; i++)
+		{
+			if (m_previewByIndex.Contains(i))
+				continue;
+
+			// Absicherung gegen Layout-Rounding
+			float rowTop2 = m_buyRowHeight * i;
+			if (!(rowTop2 < visibleBottom && (rowTop2 + m_buyRowHeight) > visibleTop))
+				continue;
+
+			if (spawnsThisFrame >= 4)
+				break;
+
+			SilverTraderMenu_BuyData data = m_buyData.Get(i);
+			if (!data)
+				continue;
+
+			EntityAI entity = null;
+			if (m_previewPool.Contains(data.m_classname))
+			{
+				entity = m_previewPool.Get(data.m_classname);
+				m_previewPool.Remove(data.m_classname);
+			}
+			else
+			{
+				entity = g_Game.CreateObject(data.m_classname, "0 0 0", true, false, false);
+			}
+
+			if (!entity)
+				continue;
+
+			m_previewByIndex.Insert(i, entity);
+			ItemBase item = ItemBase.Cast(entity);
+			ItemPreviewWidget preview = ItemPreviewWidget.Cast(m_buyWidgetsCache.Get(i).FindAnyWidget("ItemPreviewWidget"));
+			if (preview && item)
+			{
+				preview.SetItem(item);
+				preview.SetView(item.GetViewIndex());
+				preview.SetModelPosition(Vector(0, 0, 1));
+			}
+			spawnsThisFrame++;
+		}
+
+		// Scroll-State nur speichern wenn keine Spawns mehr ausstehen
+		if (spawnsThisFrame < 4)
+			m_lastScrollPos01 = scrollPos01;
 	}
 
 	string FormatBuyQuantityStr(float quantity)
@@ -536,6 +674,8 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_dirty = false;
 		}
 
+		UpdateLazyPreviews();
+
 		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
 		if (!player || !player.IsAlive() || player.IsUnconscious() || player.IsRestrained())
 		{
@@ -595,7 +735,26 @@ class SilverTraderMenu extends UIScriptedMenu
 			Print("[SilverBarter] Close RPC sent for trader " + m_traderId.ToString());
 		}
 
-		CleanupUI();
+		CleanupUI(); // verschiebt aktive Entities in Pool
+
+		// Pool-Entities jetzt final löschen
+		if (m_previewPool)
+		{
+			for (int pi = 0; pi < m_previewPool.Count(); pi++)
+			{
+				EntityAI e = m_previewPool.GetElement(pi);
+				if (e)
+					g_Game.ObjectDelete(e);
+			}
+			delete m_previewPool;
+			m_previewPool = null;
+		}
+
+		if (m_previewByIndex)
+		{
+			delete m_previewByIndex;
+			m_previewByIndex = null;
+		}
 
 		if (m_traderInfo)
 		{
