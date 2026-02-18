@@ -174,6 +174,23 @@ Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `m_debugMode` | bool | false | Enable verbose logging to RPT file. Useful for troubleshooting. Disable in production to reduce log spam. |
+| `m_quantityPriceClassnames` | array | [] | List of item classnames whose sell price is scaled by their current fill level (quantity ratio). Useful for stackable or refillable items where a half-full item should sell for less than a full one. |
+
+**How `m_quantityPriceClassnames` works:**
+
+By default, only magazines and stackable ammo have their price scaled by fill level. This list lets you extend that behaviour to additional item types. It is intentionally opt-in: adding cheap, commonly found items (e.g. water bottles) would allow players to artificially inflate sell prices by filling them up. Only add items where the quantity actually reflects value — typically rare consumables, alcohol, or modded items with a meaningful fill level.
+
+Parent class names are supported and apply to all child classes.
+
+```json
+"m_quantityPriceClassnames": [
+    "Vodka",
+    "Whiskey",
+    "Rum_Bottle"
+]
+```
+
+With this config, a `Vodka` bottle at 50% fill sells for 50% of a full one. Items **not** in this list (and not already handled as magazines/ammo) always sell at full quantity price regardless of fill level.
 
 ### Trader Configuration
 
