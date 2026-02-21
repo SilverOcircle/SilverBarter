@@ -37,6 +37,8 @@ class SilverTraderMenu extends UIScriptedMenu
 	ref array<string> m_filterData;
 	static ref array<bool> m_filterMemory;
 
+	ref map<string, string> m_dnCache;
+
 	float m_currentBarterProgress = 0;
 	bool m_blockBarter = true;
 
@@ -239,14 +241,50 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (!m_traderData || !m_traderData.m_items)
 			return;
 
-		int nextItemIndex = -1;
-		foreach (string classname, float quantity : m_traderData.m_items)
+		array<string> sortKeys = new array<string>;
+		map<string, string> keyToClass = new map<string, string>;
+
+		foreach (string cn, float qty : m_traderData.m_items)
 		{
-			if (pluginTrader.FilterByCategories(m_filterData, m_filterMemory, classname))
-			{
-				nextItemIndex = InitItemBuy(nextItemIndex + 1, classname, quantity, pluginTrader);
-			}
+			if (!pluginTrader.FilterByCategories(m_filterData, m_filterMemory, cn))
+				continue;
+
+			string dn = GetItemDisplayName(cn);
+			dn.ToLower();
+			string key = dn + "|" + cn;
+			sortKeys.Insert(key);
+			keyToClass.Insert(key, cn);
 		}
+
+		sortKeys.Sort(false);
+
+		int nextItemIndex = -1;
+		foreach (string key2 : sortKeys)
+		{
+			string classname = keyToClass.Get(key2);
+			float quantity = m_traderData.m_items.Get(classname);
+			nextItemIndex = InitItemBuy(nextItemIndex + 1, classname, quantity, pluginTrader);
+		}
+	}
+
+	private string GetItemDisplayName(string classname)
+	{
+		if (!m_dnCache)
+			m_dnCache = new map<string, string>;
+
+		if (m_dnCache.Contains(classname))
+			return m_dnCache.Get(classname);
+
+		string dn = classname;
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " displayName"))
+			dn = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " displayName");
+		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname + " displayName"))
+			dn = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " displayName");
+		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname + " displayName"))
+			dn = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " displayName");
+
+		m_dnCache.Insert(classname, dn);
+		return dn;
 	}
 
 	// Kein ItemBase-Parameter mehr - Preview wird lazy in UpdateLazyPreviews() gesetzt
@@ -269,7 +307,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_buyItemsPanel.AddChild(itemBuy);
 
 		float w, h;
-		float contentWidth = m_sellItemsPanel.GetContentWidth();
+		float contentWidth = m_buyItemsPanel.GetContentWidth();
 		itemBuy.GetSize(w, h);
 
 		// Zeilenhöhe beim ersten Item merken
@@ -290,14 +328,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		actionButton.SetUserID(2001);
 
 		// PreviewWidget bleibt leer - wird lazy befüllt
-		// DisplayName direkt aus Config lesen (kein CreateObject nötig)
-		string displayName = classname;
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " displayName"))
-			displayName = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " displayName");
-		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname + " displayName"))
-			displayName = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " displayName");
-		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname + " displayName"))
-			displayName = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " displayName");
+		string displayName = GetItemDisplayName(classname);
 
 		WidgetSetWidth(itemBuy, "ItemNameWidget", contentWidth - 220);
 		WidgetTrySetText(itemBuy, "ItemNameWidget", displayName);
@@ -787,6 +818,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			delete m_filterData;
 			m_filterData = null;
+		}
+		if (m_dnCache)
+		{
+			delete m_dnCache;
+			m_dnCache = null;
 		}
 
 		Close();
