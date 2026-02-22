@@ -39,7 +39,6 @@ class PluginSilverTrader extends PluginBase
 			TOOL_CLASSES.Insert("Blowtorch");
 			TOOL_CLASSES.Insert("Whetstone");
 			TOOL_CLASSES.Insert("ElectronicRepairKit");
-			TOOL_CLASSES.Insert("TireRepairKit");
 			TOOL_CLASSES.Insert("LugWrench");
 			TOOL_CLASSES.Insert("PipeWrench");
 			TOOL_CLASSES.Insert("Screwdriver");
