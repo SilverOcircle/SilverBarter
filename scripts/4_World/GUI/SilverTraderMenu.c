@@ -50,6 +50,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_previewPool = new map<string, EntityAI>;
 		m_previewByIndex = new map<int, EntityAI>;
 		m_filterData = new array<string>;
+		m_dnCache = new map<string, string>;
 
 		if (!m_filterMemory)
 		{
@@ -269,9 +270,6 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private string GetItemDisplayName(string classname)
 	{
-		if (!m_dnCache)
-			m_dnCache = new map<string, string>;
-
 		if (m_dnCache.Contains(classname))
 			return m_dnCache.Get(classname);
 
@@ -441,7 +439,8 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 			else
 			{
-				entity = g_Game.CreateObject(data.m_classname, "0 0 0", true, false, false);
+				Object obj = g_Game.CreateObject(data.m_classname, "0 0 0", true, false, false);
+				entity = EntityAI.Cast(obj);
 			}
 
 			if (!entity)
