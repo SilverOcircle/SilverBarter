@@ -1735,7 +1735,7 @@ class PluginSilverTrader extends PluginBase
 			return IsCategoryEnabled(categories, enabledCategories, "vehicle_parts");
 		}
 
-		if (classname.IndexOf("ZenSkills_") == 0)
+		if (classname.IndexOf("ZenSkills_") == 0 || classname.IndexOf("TerjeBook") == 0)
 		{
 			return IsCategoryEnabled(categories, enabledCategories, "base_building");
 		}
