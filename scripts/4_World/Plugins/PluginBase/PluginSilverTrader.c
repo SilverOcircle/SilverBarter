@@ -1680,6 +1680,11 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
+		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
+		{
+			return IsCategoryEnabled(categories, enabledCategories, "vehicle_parts");
+		}
+
 		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " inventorySlot"))
 		{
 			inventorySlots.Clear();
@@ -1727,11 +1732,6 @@ class PluginSilverTrader extends PluginBase
 		if (g_Game.IsKindOf(classname, "Clothing_Base"))
 		{
 			return IsCategoryEnabled(categories, enabledCategories, "clothing");
-		}
-
-		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "vehicle_parts");
 		}
 
 		if (classname.IndexOf("ZenSkills_") == 0 || classname.IndexOf("TerjeBook") == 0)
