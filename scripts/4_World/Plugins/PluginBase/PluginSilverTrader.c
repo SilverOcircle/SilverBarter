@@ -1068,9 +1068,9 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// Gekaufte Items spawnen (nur freigegebene Items mit validierter Menge)
+		bool spawnFailed = false;
 		foreach (string buyClassname4, float buyQuantity4 : approvedBuyItems)
 		{
-
 			if (buyQuantity4 <= 0)
 			{
 				DebugLog("SPAWN SKIP: buyQuantity is 0 for " + buyClassname4);
@@ -1084,13 +1084,35 @@ class PluginSilverTrader extends PluginBase
 				InventoryLocation invLoc = new InventoryLocation;
 				bool foundInvSlot = player.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname4, FindInventoryLocationType.ANY, invLoc);
 
+				DebugSpawnInfo(buyClassname4);
+
 				if (foundInvSlot)
 				{
 					buyEntity = ItemBase.Cast(player.GetInventory().LocationCreateEntity(invLoc, buyClassname4, ECE_IN_INVENTORY, RF_DEFAULT));
+					DebugLog("LocationCreateEntity result for " + buyClassname4 + ": " + (buyEntity != null).ToString() + " (foundInvSlot=true)");
 				}
-				else
+
+				// Fallback fuer Items die ECE_IN_INVENTORY nicht unterstuetzen (z.B. ItemBook-Subklassen)
+				if (!buyEntity)
 				{
 					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname4, player.GetPosition()));
+					if (buyEntity)
+						player.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, buyEntity);
+					DebugLog("CreateObject fallback result for " + buyClassname4 + ": " + (buyEntity != null).ToString());
+				}
+
+				// Sicherstellen dass Item wirklich beim Spieler gelandet ist (kein Boden-Drop, kein Ghost)
+				if (buyEntity)
+				{
+					EntityAI root = buyEntity.GetHierarchyRoot();
+					if (root != player)
+					{
+						g_Game.ObjectDelete(buyEntity);
+						buyEntity = null;
+						Print("[SilverBarter] SPAWN FAILED: " + buyClassname4 + " root!=player (foundInvSlot=" + foundInvSlot.ToString() + "), deleted");
+						spawnFailed = true;
+						break;
+					}
 				}
 
 				if (buyEntity)
@@ -1119,11 +1141,12 @@ class PluginSilverTrader extends PluginBase
 						buyEntity.SetQuantityNormalized(spawnQuantity01);
 					}
 
-					DebugLog("SPAWN OK: " + buyClassname4 + " (inv=" + foundInvSlot.ToString() + ", qty=" + spawnQuantity01.ToString() + ")");
+					DebugLog("SPAWN OK: " + buyClassname4 + " (qty=" + spawnQuantity01.ToString() + ")");
 				}
 				else
 				{
-					Print("[SilverBarter] SPAWN FAILED: " + buyClassname4 + " could not be created (inv=" + foundInvSlot.ToString() + ")");
+					Print("[SilverBarter] SPAWN FAILED: " + buyClassname4 + " could not be created");
+					spawnFailed = true;
 					break;
 				}
 
@@ -1132,7 +1155,7 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// Pruefen ob tatsaechlich etwas getauscht wurde
-		bool tradeSuccess = (validSellItems.Count() > 0 || approvedBuyItems.Count() > 0);
+		bool tradeSuccess = (validSellItems.Count() > 0 || approvedBuyItems.Count() > 0) && !spawnFailed;
 
 		if (!tradeSuccess)
 		{
@@ -1836,5 +1859,31 @@ class PluginSilverTrader extends PluginBase
 		{
 			Print("[SilverBarter] " + message);
 		}
+	}
+
+	void DebugSpawnInfo(string cn)
+	{
+		if (!m_config || !m_config.m_debugMode)
+			return;
+
+		string p = "";
+		if (g_Game.ConfigIsExisting("CfgVehicles " + cn))
+			p = "CfgVehicles " + cn;
+		else if (g_Game.ConfigIsExisting("CfgMagazines " + cn))
+			p = "CfgMagazines " + cn;
+		else if (g_Game.ConfigIsExisting("CfgWeapons " + cn))
+			p = "CfgWeapons " + cn;
+
+		if (p == "")
+		{
+			Print("[SilverBarter] SPAWN DEBUG: " + cn + " not found in any CfgPath on server");
+			return;
+		}
+
+		int scope = 0;
+		if (g_Game.ConfigIsExisting(p + " scope"))
+			scope = g_Game.ConfigGetInt(p + " scope");
+
+		Print("[SilverBarter] SPAWN DEBUG: " + cn + " path=" + p + " scope=" + scope.ToString());
 	}
 };
