@@ -1013,64 +1013,14 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// === PHASE 4: Trade ausfuehren ===
-		// Sell-Items ins Trader-Inventar aufnehmen
-		foreach (ItemBase sellItem3 : validSellItems)
-		{
-			string classname = sellItem3.GetType();
-
-			if (isRotatingTrade)
-			{
-				DebugLog("Rotating Trader " + traderId.ToString() + " destroys sold item: " + classname);
-				continue;
-			}
-
-			float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, classname);
-			float itemQuantity = CalculateItemQuantity01(sellItem3);
-			float newValue = 0;
-
-			if (traderData.m_items.Contains(classname))
-			{
-				newValue = Math.Min(maxQuantity, traderData.m_items.Get(classname) + itemQuantity);
-				traderData.m_items.Set(classname, newValue);
-			}
-			else
-			{
-				newValue = Math.Min(maxQuantity, itemQuantity);
-				traderData.m_items.Set(classname, newValue);
-			}
-
-			DebugLog("Trader " + traderId.ToString() + " buys: " + classname);
-		}
-
-		// Buy-Items: Bestand reduzieren
-		foreach (string buyClassname3, float buyQuantity3 : approvedBuyItems)
-		{
-			float newValue2 = Math.Max(0, traderData.m_items.Get(buyClassname3) - buyQuantity3);
-			if (newValue2 == 0)
-			{
-				traderData.m_items.Remove(buyClassname3);
-			}
-			else
-			{
-				traderData.m_items.Set(buyClassname3, newValue2);
-			}
-			DebugLog("Trader " + traderId.ToString() + " sells: " + buyClassname3);
-		}
-
-		// Verkaufte Items loeschen (rueckwaerts, Attachments vor Container)
-		for (int i = validSellItems.Count() - 1; i >= 0; i--)
-		{
-			ItemBase sellItem4 = validSellItems[i];
-			if (sellItem4 && !sellItem4.IsPendingDeletion() && IsItemOwnedByPlayer(sellItem4, player))
-			{
-				g_Game.ObjectDelete(sellItem4);
-			}
-		}
-
-		// Gekaufte Items spawnen (nur freigegebene Items mit validierter Menge)
+		// Buy-Items zuerst spawnen – erst danach Sell-Items loeschen und Bestand aendern
 		bool spawnFailed = false;
+		array<ItemBase> spawnedEntities = new array<ItemBase>;
 		foreach (string buyClassname4, float buyQuantity4 : approvedBuyItems)
 		{
+			if (spawnFailed)
+				break;
+
 			if (buyQuantity4 <= 0)
 			{
 				DebugLog("SPAWN SKIP: buyQuantity is 0 for " + buyClassname4);
@@ -1141,6 +1091,7 @@ class PluginSilverTrader extends PluginBase
 						buyEntity.SetQuantityNormalized(spawnQuantity01);
 					}
 
+					spawnedEntities.Insert(buyEntity);
 					DebugLog("SPAWN OK: " + buyClassname4 + " (qty=" + spawnQuantity01.ToString() + ")");
 				}
 				else
@@ -1154,12 +1105,81 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
+		// Bei Spawn-Fehler: bereits gespawnte Items zurueckloeschen (Rollback)
+		if (spawnFailed)
+		{
+			Print("[SilverBarter] Trade aborted: spawn failure, rolling back for " + sender.GetName());
+			foreach (ItemBase spawnedEntity : spawnedEntities)
+			{
+				if (spawnedEntity && !spawnedEntity.IsPendingDeletion())
+					g_Game.ObjectDelete(spawnedEntity);
+			}
+		}
+
 		// Pruefen ob tatsaechlich etwas getauscht wurde
 		bool tradeSuccess = (validSellItems.Count() > 0 || approvedBuyItems.Count() > 0) && !spawnFailed;
 
 		if (!tradeSuccess)
 		{
 			DebugLog("Trade result: Nothing traded for " + sender.GetName());
+		}
+
+		// Nur bei erfolgreichem Spawn: Sell-Items loeschen und Trader-Bestand aendern
+		if (tradeSuccess && traderData && traderData.m_items)
+		{
+			// Sell-Items ins Trader-Inventar aufnehmen
+			foreach (ItemBase sellItem3 : validSellItems)
+			{
+				string sellClassname = sellItem3.GetType();
+
+				if (isRotatingTrade)
+				{
+					DebugLog("Rotating Trader " + traderId.ToString() + " destroys sold item: " + sellClassname);
+					continue;
+				}
+
+				float maxQuantity = CalculateTraderItemQuantityMax(traderInfo, sellClassname);
+				float itemQuantity = CalculateItemQuantity01(sellItem3);
+				float newValue = 0;
+
+				if (traderData.m_items.Contains(sellClassname))
+				{
+					newValue = Math.Min(maxQuantity, traderData.m_items.Get(sellClassname) + itemQuantity);
+					traderData.m_items.Set(sellClassname, newValue);
+				}
+				else
+				{
+					newValue = Math.Min(maxQuantity, itemQuantity);
+					traderData.m_items.Set(sellClassname, newValue);
+				}
+
+				DebugLog("Trader " + traderId.ToString() + " buys: " + sellClassname);
+			}
+
+			// Buy-Items: Bestand reduzieren
+			foreach (string buyClassname3, float buyQuantity3 : approvedBuyItems)
+			{
+				float newValue2 = Math.Max(0, traderData.m_items.Get(buyClassname3) - buyQuantity3);
+				if (newValue2 == 0)
+				{
+					traderData.m_items.Remove(buyClassname3);
+				}
+				else
+				{
+					traderData.m_items.Set(buyClassname3, newValue2);
+				}
+				DebugLog("Trader " + traderId.ToString() + " sells: " + buyClassname3);
+			}
+
+			// Verkaufte Items vom Spieler loeschen (rueckwaerts, Attachments vor Container)
+			for (int i = validSellItems.Count() - 1; i >= 0; i--)
+			{
+				ItemBase sellItem4 = validSellItems[i];
+				if (sellItem4 && !sellItem4.IsPendingDeletion() && IsItemOwnedByPlayer(sellItem4, player))
+				{
+					g_Game.ObjectDelete(sellItem4);
+				}
+			}
 		}
 
 		// Trader als dirty markieren (nur normale Trader persistent speichern)
