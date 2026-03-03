@@ -1043,26 +1043,13 @@ class PluginSilverTrader extends PluginBase
 				}
 
 				// Fallback fuer Items die ECE_IN_INVENTORY nicht unterstuetzen (z.B. ItemBook-Subklassen)
+				// Item landet ggf. auf dem Boden beim Spieler – das ist akzeptabel
 				if (!buyEntity)
 				{
 					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname4, player.GetPosition()));
 					if (buyEntity)
 						player.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, buyEntity);
 					DebugLog("CreateObject fallback result for " + buyClassname4 + ": " + (buyEntity != null).ToString());
-				}
-
-				// Sicherstellen dass Item wirklich beim Spieler gelandet ist (kein Boden-Drop, kein Ghost)
-				if (buyEntity)
-				{
-					EntityAI root = buyEntity.GetHierarchyRoot();
-					if (root != player)
-					{
-						g_Game.ObjectDelete(buyEntity);
-						buyEntity = null;
-						Print("[SilverBarter] SPAWN FAILED: " + buyClassname4 + " root!=player (foundInvSlot=" + foundInvSlot.ToString() + "), deleted");
-						spawnFailed = true;
-						break;
-					}
 				}
 
 				if (buyEntity)
@@ -1092,7 +1079,11 @@ class PluginSilverTrader extends PluginBase
 					}
 
 					spawnedEntities.Insert(buyEntity);
-					DebugLog("SPAWN OK: " + buyClassname4 + " (qty=" + spawnQuantity01.ToString() + ")");
+					EntityAI spawnRoot = buyEntity.GetHierarchyRoot();
+					string spawnRootType = "null";
+					if (spawnRoot)
+						spawnRootType = spawnRoot.GetType();
+					DebugLog("SPAWN OK: " + buyClassname4 + " (qty=" + spawnQuantity01.ToString() + " root=" + spawnRootType + ")");
 				}
 				else
 				{
@@ -1103,6 +1094,9 @@ class PluginSilverTrader extends PluginBase
 
 				calcQuantity = calcQuantity - 1;
 			}
+
+			if (spawnFailed)
+				break;
 		}
 
 		// Bei Spawn-Fehler: bereits gespawnte Items zurueckloeschen (Rollback)
