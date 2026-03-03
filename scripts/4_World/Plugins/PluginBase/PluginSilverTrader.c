@@ -1,3 +1,14 @@
+// Gecachte Config-Daten pro Classname (einmalig befuellt, Config ist statisch)
+class SilverItemConfigCache
+{
+	int    itemCapacity;      // itemSize[0] * itemSize[1], Min 1
+	bool   isLiquidContainer;
+	int    maxStackSize;      // varQuantityMax oder count
+	string stackedUnit;       // z.B. "pc."
+	bool   isAmmo;            // IsKindOf Ammunition_Base
+	string category;          // Ergebnis von FilterByCategories
+}
+
 // SilverBarter Haupt-Plugin (Server + Client vereint)
 class PluginSilverTrader extends PluginBase
 {
@@ -26,6 +37,12 @@ class PluginSilverTrader extends PluginBase
 	ref map<int, float> m_rotationTimers;
 	bool m_zenMapMarkersSet = false;
 
+	// Item-Config-Cache (Classname → gecachte Config-Werte)
+	ref map<string, ref SilverItemConfigCache> m_itemConfigCache;
+
+	// Welche Spieler (PlayerId) haben welchen Trader gerade offen (traderId → PlayerIds)
+	ref map<int, ref array<int>> m_openTraderMenus;
+
 	private const string DATA_FOLDER = "$profile:\\SilverBarter\\TraderData\\";
 
 	override void OnInit()
@@ -52,6 +69,9 @@ class PluginSilverTrader extends PluginBase
 			TOOL_CLASSES.Insert("Lockpick");
 		}
 
+		// Cache einmalig initialisieren (Client + Server)
+		m_itemConfigCache = new map<string, ref SilverItemConfigCache>;
+
 		// RPC-Handler registrieren (Client + Server)
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_OPEN_TRADE_MENU, this, "RpcRequestOpen");
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ACTION_TRADER, this, "RpcHandleTraderAction");
@@ -70,6 +90,7 @@ class PluginSilverTrader extends PluginBase
 			m_rotatingTraderCache = new map<int, ref SilverRotatingTrader_Config>;
 			m_rotatingTraderData = new map<int, ref SilverTrader_Data>;
 			m_rotationTimers = new map<int, float>;
+			m_openTraderMenus = new map<int, ref array<int>>;
 
 			m_config = GetSilverBarterConfig();
 			m_rotatingConfig = GetSilverRotatingTradersConfig();
@@ -540,9 +561,40 @@ class PluginSilverTrader extends PluginBase
 		if (!m_rotatingTraderData.Find(traderId, traderData))
 			return;
 
-		// An alle verbundenen Spieler senden
+		// Nur Spieler mit offenem Menue dieses Traders benachrichtigen
+		array<int> viewerIds;
+		if (!m_openTraderMenus || !m_openTraderMenus.Find(traderId, viewerIds) || !viewerIds || viewerIds.Count() == 0)
+			return;
+
+		// Items einmal zusammenstellen (fuer alle Viewer identisch)
+		int itemCount = 0;
+		if (traderData && traderData.m_items)
+			itemCount = traderData.m_items.Count();
+
 		array<Man> players = new array<Man>;
 		g_Game.GetPlayers(players);
+
+		// Online-Spieler als Set aufbauen (fuer Garbage-Collect)
+		array<int> onlineIds = new array<int>;
+		foreach (Man onlineMan : players)
+		{
+			PlayerBase onlinePlayer = PlayerBase.Cast(onlineMan);
+			if (onlinePlayer && onlinePlayer.GetIdentity())
+				onlineIds.Insert(onlinePlayer.GetIdentity().GetPlayerId());
+		}
+
+		// Nicht mehr verbundene Viewer bereinigen
+		for (int vi = viewerIds.Count() - 1; vi >= 0; vi--)
+		{
+			if (onlineIds.Find(viewerIds.Get(vi)) == -1)
+				viewerIds.Remove(vi);
+		}
+
+		if (viewerIds.Count() == 0)
+		{
+			m_openTraderMenus.Remove(traderId);
+			return;
+		}
 
 		foreach (Man man : players)
 		{
@@ -550,14 +602,12 @@ class PluginSilverTrader extends PluginBase
 			if (!player || !player.GetIdentity())
 				continue;
 
+			if (viewerIds.Find(player.GetIdentity().GetPlayerId()) == -1)
+				continue;
+
 			ScriptRPC rpc = new ScriptRPC();
 			rpc.Write(SilverRPC.SILVERRPC_ROTATING_TRADER_SYNC);
 			rpc.Write(traderId);
-
-			int itemCount = 0;
-			if (traderData && traderData.m_items)
-				itemCount = traderData.m_items.Count();
-
 			rpc.Write(itemCount);
 			if (traderData && traderData.m_items)
 			{
@@ -709,6 +759,21 @@ class PluginSilverTrader extends PluginBase
 				return;
 		}
 
+		// Spieler als aktiver Viewer dieses Traders eintragen (fuer selektiven Sync)
+		int openPlayerId = player.GetIdentity().GetPlayerId();
+		foreach (int oldTid, array<int> oldViewers : m_openTraderMenus)
+		{
+			oldViewers.RemoveItem(openPlayerId);
+		}
+		array<int> viewers;
+		if (!m_openTraderMenus.Find(traderId, viewers))
+		{
+			viewers = new array<int>;
+			m_openTraderMenus.Insert(traderId, viewers);
+		}
+		if (viewers.Find(openPlayerId) == -1)
+			viewers.Insert(openPlayerId);
+
 		// RPC direkt senden mit einzelnen Werten (komplexe Objekte nicht serialisierbar)
 		ScriptRPC rpc = new ScriptRPC();
 		rpc.Write(SilverRPC.SILVERRPC_OPEN_TRADE_MENU);
@@ -798,6 +863,16 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
+		if (!sender)
+			return;
+
+		array<int> viewers;
+		if (m_openTraderMenus && m_openTraderMenus.Find(traderId, viewers))
+		{
+			viewers.RemoveItem(sender.GetPlayerId());
+			if (viewers.Count() == 0)
+				m_openTraderMenus.Remove(traderId);
+		}
 	}
 
 	void RpcRequestTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
@@ -1069,7 +1144,7 @@ class PluginSilverTrader extends PluginBase
 							buyMagazine.ServerSetAmmoCount(0);
 						}
 					}
-					else if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + buyClassname4 + " liquidContainerType"))
+					else if (GetOrCreateItemCache(buyClassname4).isLiquidContainer)
 					{
 						buyEntity.SetQuantityNormalized(0);
 					}
@@ -1478,25 +1553,140 @@ class PluginSilverTrader extends PluginBase
 		return (int)Math.Floor(resultPrice);
 	}
 
+	SilverItemConfigCache GetOrCreateItemCache(string classname)
+	{
+		SilverItemConfigCache cache;
+		if (m_itemConfigCache && m_itemConfigCache.Find(classname, cache))
+			return cache;
+
+		cache = new SilverItemConfigCache();
+		cache.itemCapacity     = 1;
+		cache.isLiquidContainer = false;
+		cache.maxStackSize     = 0;
+		cache.stackedUnit      = "";
+		cache.isAmmo           = false;
+
+		string cfgRoot = "";
+		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+			cfgRoot = CFG_VEHICLESPATH;
+		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+			cfgRoot = CFG_MAGAZINESPATH;
+		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+			cfgRoot = CFG_WEAPONSPATH;
+
+		if (cfgRoot != "")
+		{
+			string base = cfgRoot + " " + classname;
+
+			vector itemSize = "1 1 0";
+			if (g_Game.ConfigIsExisting(base + " itemSize"))
+				itemSize = g_Game.ConfigGetVector(base + " itemSize");
+			cache.itemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
+
+			cache.isLiquidContainer = g_Game.ConfigIsExisting(base + " liquidContainerType");
+
+			if (cfgRoot == CFG_MAGAZINESPATH)
+			{
+				if (g_Game.ConfigIsExisting(base + " count"))
+					cache.maxStackSize = g_Game.ConfigGetInt(base + " count");
+			}
+			else
+			{
+				if (g_Game.ConfigIsExisting(base + " varQuantityMax"))
+					cache.maxStackSize = g_Game.ConfigGetInt(base + " varQuantityMax");
+			}
+
+			if (g_Game.ConfigIsExisting(base + " stackedUnit"))
+				cache.stackedUnit = g_Game.ConfigGetTextOut(base + " stackedUnit");
+		}
+
+		cache.isAmmo = g_Game.IsKindOf(classname, "Ammunition_Base");
+
+		// Kategorie fuer FilterByCategories einmalig bestimmen
+		string cat = "other";
+
+		if (g_Game.IsKindOf(classname, "Grenade_Base") || cfgRoot == CFG_WEAPONSPATH)
+		{
+			cat = "weapons";
+		}
+		else if (cache.isAmmo || classname.IndexOf("AmmoBox") == 0)
+		{
+			cat = "ammo";
+		}
+		else if (g_Game.IsKindOf(classname, "Magazine_Base"))
+		{
+			cat = "magazines";
+		}
+		else if (TOOL_CLASSES)
+		{
+			foreach (string tc : TOOL_CLASSES)
+			{
+				if (g_Game.IsKindOf(classname, tc))
+				{
+					cat = "tools";
+					break;
+				}
+			}
+		}
+
+		if (cat == "other" && cfgRoot == CFG_VEHICLESPATH)
+		{
+			string vBase = CFG_VEHICLESPATH + " " + classname;
+
+			if (g_Game.ConfigIsExisting(vBase + " vehiclePartItem") && g_Game.ConfigGetInt(vBase + " vehiclePartItem") == 1)
+			{
+				cat = "vehicle_parts";
+			}
+			else if (g_Game.ConfigIsExisting(vBase + " inventorySlot"))
+			{
+				TStringArray invSlots = new TStringArray;
+				g_Game.ConfigGetTextArray(vBase + " inventorySlot", invSlots);
+				foreach (string slot : invSlots)
+				{
+					slot.ToLower();
+					if (slot.IndexOf("weapon") == 0) { cat = "attachments"; break; }
+					else if (slot == "melee") { cat = "tools"; break; }
+				}
+			}
+
+			if (cat == "other" && g_Game.ConfigIsExisting(vBase + " attachments"))
+			{
+				TStringArray atts = new TStringArray;
+				g_Game.ConfigGetTextArray(vBase + " attachments", atts);
+				foreach (string att : atts)
+				{
+					att.ToLower();
+					if (att.IndexOf("batteryd") == 0) { cat = "electronic"; break; }
+				}
+			}
+
+			if (cat == "other" && g_Game.ConfigIsExisting(vBase + " medicalItem") && g_Game.ConfigGetInt(vBase + " medicalItem") == 1)
+				cat = "medical";
+		}
+
+		if (cat == "other")
+		{
+			if (g_Game.IsKindOf(classname, "Edible_Base"))
+				cat = "food";
+			else if (g_Game.IsKindOf(classname, "Clothing_Base"))
+				cat = "clothing";
+			else if (classname.IndexOf("ZenSkills_") == 0 || classname.IndexOf("TerjeBook") == 0)
+				cat = "base_building";
+		}
+
+		cat.ToLower();
+		cache.category = cat;
+
+		if (!m_itemConfigCache)
+			m_itemConfigCache = new map<string, ref SilverItemConfigCache>;
+		m_itemConfigCache.Insert(classname, cache);
+		return cache;
+	}
+
 	float CalculateTraderItemQuantityMax(SilverTrader_Info trader, string classname)
 	{
-		vector itemSize = "1 1 0";
-
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-		{
-			itemSize = g_Game.ConfigGetVector(CFG_VEHICLESPATH + " " + classname + " itemSize");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-		{
-			itemSize = g_Game.ConfigGetVector(CFG_MAGAZINESPATH + " " + classname + " itemSize");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-		{
-			itemSize = g_Game.ConfigGetVector(CFG_WEAPONSPATH + " " + classname + " itemSize");
-		}
-
-		int itemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
-		return Math.Round(((float)trader.m_storageMaxSize) / itemCapacity);
+		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
+		return Math.Round(((float)trader.m_storageMaxSize) / cache.itemCapacity);
 	}
 
 	float CalculateItemQuantity01(ItemBase item)
@@ -1580,50 +1770,13 @@ class PluginSilverTrader extends PluginBase
 
 	float CalculateItemSelectedQuantityStep(string classname)
 	{
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
+		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
+
+		if (cache.isLiquidContainer)
 			return 1;
 
-		int maxStackSize = 0;
-
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
-		}
-
-		if (maxStackSize > 0)
-		{
-			string stackedUnits = "";
-
-			if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
-			}
-
-			if (stackedUnits == "pc.")
-			{
-				return 1.0 / maxStackSize;
-			}
-			else if (g_Game.IsKindOf(classname, "Ammunition_Base"))
-			{
-				return 1.0 / maxStackSize;
-			}
-		}
+		if (cache.maxStackSize > 0 && (cache.stackedUnit == "pc." || cache.isAmmo))
+			return 1.0 / cache.maxStackSize;
 
 		return 1;
 	}
@@ -1689,94 +1842,8 @@ class PluginSilverTrader extends PluginBase
 
 	bool FilterByCategories(array<string> categories, array<bool> enabledCategories, string classname)
 	{
-		TStringArray inventorySlots = new TStringArray;
-
-		if (g_Game.IsKindOf(classname, "Grenade_Base") || g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "weapons");
-		}
-
-		if (g_Game.IsKindOf(classname, "Ammunition_Base") || classname.IndexOf("AmmoBox") == 0)
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "ammo");
-		}
-
-		if (g_Game.IsKindOf(classname, "Magazine_Base"))
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "magazines");
-		}
-
-		if (TOOL_CLASSES)
-		{
-			foreach (string toolClass : TOOL_CLASSES)
-			{
-				if (g_Game.IsKindOf(classname, toolClass))
-				{
-					return IsCategoryEnabled(categories, enabledCategories, "tools");
-				}
-			}
-		}
-
-		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " vehiclePartItem") == 1)
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "vehicle_parts");
-		}
-
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " inventorySlot"))
-		{
-			inventorySlots.Clear();
-			g_Game.ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " inventorySlot", inventorySlots);
-
-			foreach (string inventorySlot : inventorySlots)
-			{
-				inventorySlot.ToLower();
-				if (inventorySlot.IndexOf("weapon") == 0)
-				{
-					return IsCategoryEnabled(categories, enabledCategories, "attachments");
-				}
-				else if (inventorySlot == "melee")
-				{
-					return IsCategoryEnabled(categories, enabledCategories, "tools");
-				}
-			}
-		}
-
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " attachments"))
-		{
-			inventorySlots.Clear();
-			g_Game.ConfigGetTextArray(CFG_VEHICLESPATH + " " + classname + " attachments", inventorySlots);
-
-			foreach (string attachment : inventorySlots)
-			{
-				attachment.ToLower();
-				if (attachment.IndexOf("batteryd") == 0)
-				{
-					return IsCategoryEnabled(categories, enabledCategories, "electronic");
-				}
-			}
-		}
-
-		if (g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " medicalItem") == 1)
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "medical");
-		}
-
-		if (g_Game.IsKindOf(classname, "Edible_Base"))
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "food");
-		}
-
-		if (g_Game.IsKindOf(classname, "Clothing_Base"))
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "clothing");
-		}
-
-		if (classname.IndexOf("ZenSkills_") == 0 || classname.IndexOf("TerjeBook") == 0)
-		{
-			return IsCategoryEnabled(categories, enabledCategories, "base_building");
-		}
-
-		return IsCategoryEnabled(categories, enabledCategories, "other");
+		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
+		return IsCategoryEnabled(categories, enabledCategories, cache.category);
 	}
 
 	bool CanSellItem(SilverTrader_Info traderInfo, ItemBase item)
