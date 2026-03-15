@@ -210,6 +210,28 @@ Each trader in the `m_traders` array supports these options:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `m_storageMaxSize` | int | 5000 | Total virtual storage capacity in inventory slots. Determines how much stock the trader can hold. Higher = more items, slower price changes. |
+
+> **How `m_storageMaxSize` works in detail:**
+>
+> The per-item maximum stock is calculated as:
+> ```
+> itemQuantityMax = Round( m_storageMaxSize / itemCapacity )
+> ```
+> where `itemCapacity = itemSize[0] * itemSize[1]` (minimum 1) from the item's config.
+>
+> Large items occupy more virtual space, so the trader can hold fewer of them.
+> Example with `m_storageMaxSize = 5000`:
+>
+> | Item | itemSize | itemCapacity | Max quantity |
+> |------|----------|--------------|--------------|
+> | Nails (1×1) | 1×1 | 1 | 5000 |
+> | AKM (2×4) | 2×4 | 8 | 625 |
+> | Generator (10×10) | 10×10 | 100 | 50 |
+>
+> **Effect on trading:**
+> - **Sell (player → trader):** Once `itemQuantityMax` is reached, the trader refuses to buy any more of that item.
+> - **Price (dumping):** `itemQuantityMax` is the denominator in the dumping formula. The more stock the trader holds relative to the maximum, the lower the buy price drops — down to `m_dumpingByAmountModifier` (e.g. 65%) at full stock.
+> - **Trade limits:** `m_sellMaxQuantityPercent` and `m_buyMaxQuantityPercent` are applied on top of `itemQuantityMax` to cap the amount per single trade.
 | `m_storageCommission` | float | 0.65 | Default commission rate (0.0 - 1.0). Deducted from sell prices. 0.65 = 65% fee, player gets 35% of buy price when selling. |
 | `m_dumpingByAmountAlgorithm` | string | "linear" | Price algorithm. Currently only `"linear"` is supported. |
 | `m_dumpingByAmountModifier` | float | 0.65 | Minimum price multiplier at full stock. 0.65 = prices drop to 65% when stock is full. Lower value = more aggressive price drops. |
