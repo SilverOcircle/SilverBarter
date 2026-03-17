@@ -43,7 +43,9 @@ class CfgVehicles
 	class Inventory_Base;
 	class Bottle_Base;
 	class Box_Base;
-
+	class WoodenPlank: Inventory_Base {	varQuantityMax = 10; };
+	class MetalPlate: Inventory_Base { varQuantityMax = 10; };
+	class WoodenLog: Inventory_Base { varQuantityMax = 1; };
 	class TruckBattery: Inventory_Base { vehiclePartItem = 1; };
 	class CarBattery: Inventory_Base { vehiclePartItem = 1; };
 	class BrakeFluid: Inventory_Base { vehiclePartItem = 1; };
