@@ -42,15 +42,9 @@ class SilverBarterConfig
 		string path = MOD_FOLDER + CONFIG_NAME;
 		if (FileExist(path))
 		{
+			Print("[SilverBarter] Loading config: " + path);
 			JsonFileLoader<SilverBarterConfig>.JsonLoadFile(path, this);
-
-			if (CONFIG_VERSION != CURRENT_VERSION)
-			{
-				JsonFileLoader<SilverBarterConfig>.JsonSaveFile(path + "_backup", this);
-				Migrate();
-				CONFIG_VERSION = CURRENT_VERSION;
-				Save();
-			}
+			Print("[SilverBarter] Config load finished. If there are JSON errors above, fix the file manually.");
 		}
 		else
 		{
@@ -380,30 +374,30 @@ class SilverTrader_Data
 
 	void LoadFromJson(string path)
 	{
+		if (!FileExist(path))
+			return;
+
+		SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
+		Print("[SilverBarter] Loading trader data: " + path);
+		JsonFileLoader<SilverTrader_DataJson>.JsonLoadFile(path, jsonData);
+		Print("[SilverBarter] Trader data load finished. If there are JSON errors above, fix the file manually.");
+
+		// m_items erst anfassen wenn jsonData gültig ist
+		if (!jsonData || !jsonData.m_itemList)
+		{
+			Print("[SilverBarter] WARNING: Trader data parse failed, existing data preserved: " + path);
+			return;
+		}
+
 		if (!m_items)
-		{
 			m_items = new map<string, float>;
-		}
 		else
-		{
 			m_items.Clear();
-		}
 
-		if (FileExist(path))
+		foreach (SilverTrader_ItemEntry entry : jsonData.m_itemList)
 		{
-			SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
-			JsonFileLoader<SilverTrader_DataJson>.JsonLoadFile(path, jsonData);
-
-			if (jsonData && jsonData.m_itemList)
-			{
-				foreach (SilverTrader_ItemEntry entry : jsonData.m_itemList)
-				{
-					if (entry && entry.classname != "" && IsValidClassname(entry.classname))
-					{
-						m_items.Insert(entry.classname, entry.quantity);
-					}
-				}
-			}
+			if (entry && entry.classname != "" && IsValidClassname(entry.classname))
+				m_items.Insert(entry.classname, entry.quantity);
 		}
 	}
 
@@ -618,15 +612,9 @@ class SilverRotatingTradersConfig
 		string path = MOD_FOLDER + CONFIG_NAME;
 		if (FileExist(path))
 		{
+			Print("[SilverBarter] Loading rotating traders config: " + path);
 			JsonFileLoader<SilverRotatingTradersConfig>.JsonLoadFile(path, this);
-
-			if (CONFIG_VERSION != CURRENT_VERSION)
-			{
-				JsonFileLoader<SilverRotatingTradersConfig>.JsonSaveFile(path + "_backup", this);
-				Migrate();
-				CONFIG_VERSION = CURRENT_VERSION;
-				Save();
-			}
+			Print("[SilverBarter] Rotating traders config load finished. If there are JSON errors above, fix the file manually.");
 		}
 		else
 		{

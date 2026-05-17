@@ -274,7 +274,7 @@ class PluginSilverTrader extends PluginBase
 		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
 
 		// Rotierende Haendler initialisieren
-		if (m_rotatingConfig.m_rotatingTraders && m_rotatingConfig.m_rotatingTraders.Count() > 0)
+		if (m_rotatingConfig && m_rotatingConfig.m_rotatingTraders && m_rotatingConfig.m_rotatingTraders.Count() > 0)
 		{
 			foreach (SilverRotatingTrader_Config rotTrader : m_rotatingConfig.m_rotatingTraders)
 			{
