@@ -42,6 +42,13 @@ class SilverTraderMenu extends UIScriptedMenu
 	float m_currentBarterProgress = 0;
 	bool m_blockBarter = true;
 
+	// Batched Build
+	const int BUILD_BATCH_SIZE = 20;
+	ref array<string> m_pendingBuyClassnames;
+	ref array<float> m_pendingBuyQuantities;
+	int m_buildIndex = 0;
+	int m_cachedScreenHeight = 0;
+
 	void SilverTraderMenu()
 	{
 		m_sellWidgetsCache = new array<ref Widget>;
@@ -51,6 +58,8 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_previewByIndex = new map<int, EntityAI>;
 		m_filterData = new array<string>;
 		m_dnCache = new map<string, string>;
+		m_pendingBuyClassnames = new array<string>;
+		m_pendingBuyQuantities = new array<float>;
 
 		if (!m_filterMemory)
 		{
@@ -79,6 +88,10 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void CleanupBuyUI()
 	{
+		if (m_pendingBuyClassnames) m_pendingBuyClassnames.Clear();
+		if (m_pendingBuyQuantities) m_pendingBuyQuantities.Clear();
+		m_buildIndex = 0;
+
 		// Aktive Preview-Entities in Pool verschieben statt löschen
 		if (m_previewByIndex)
 		{
@@ -232,14 +245,14 @@ class SilverTraderMenu extends UIScriptedMenu
 		CleanupBuyUI();
 		m_buyItemsPanel.VScrollToPos01(0);
 		m_lastScrollPos01 = -1;
-		m_buyRowHeight = 0;    // neu messen nach Rebuild
+		m_buyRowHeight = 0;
 		m_buyPanelHeight = 0;
 
-		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
-		if (!pluginTrader)
-			return;
+		int sw;
+		GetScreenSize(sw, m_cachedScreenHeight);
 
-		if (!m_traderData || !m_traderData.m_items)
+		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+		if (!pluginTrader || !m_traderData || !m_traderData.m_items)
 			return;
 
 		array<string> sortKeys = new array<string>;
@@ -259,13 +272,35 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		sortKeys.Sort(false);
 
-		int nextItemIndex = -1;
 		foreach (string key2 : sortKeys)
 		{
 			string classname = keyToClass.Get(key2);
-			float quantity = m_traderData.m_items.Get(classname);
-			nextItemIndex = InitItemBuy(nextItemIndex + 1, classname, quantity, pluginTrader);
+			m_pendingBuyClassnames.Insert(classname);
+			m_pendingBuyQuantities.Insert(m_traderData.m_items.Get(classname));
 		}
+	}
+
+	private void StepBuildBuyList()
+	{
+		if (!m_pendingBuyClassnames || m_buildIndex >= m_pendingBuyClassnames.Count())
+			return;
+
+		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+		if (!pluginTrader)
+			return;
+
+		int limit = m_buildIndex + BUILD_BATCH_SIZE;
+		if (limit > m_pendingBuyClassnames.Count())
+			limit = m_pendingBuyClassnames.Count();
+
+		for (int i = m_buildIndex; i < limit; i++)
+		{
+			InitItemBuy(i, m_pendingBuyClassnames.Get(i), m_pendingBuyQuantities.Get(i), pluginTrader);
+		}
+		m_buildIndex = limit;
+
+		// UpdateLazyPreviews springt sonst raus wenn Scrollpos gleich bleibt
+		m_lastScrollPos01 = -1;
 	}
 
 	private string GetItemDisplayName(string classname)
@@ -288,12 +323,8 @@ class SilverTraderMenu extends UIScriptedMenu
 	// Kein ItemBase-Parameter mehr - Preview wird lazy in UpdateLazyPreviews() gesetzt
 	int InitItemBuy(int index, string classname, float quantity, PluginSilverTrader pluginTrader)
 	{
-		int screenWidth;
-		int screenHeight;
-		GetScreenSize(screenWidth, screenHeight);
-
 		Widget itemBuy;
-		if (screenHeight > 1440)
+		if (m_cachedScreenHeight > 1440)
 		{
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemBuy.layout");
 		}
@@ -704,6 +735,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_dirty = false;
 		}
 
+		StepBuildBuyList();
 		UpdateLazyPreviews();
 
 		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
@@ -1177,55 +1209,19 @@ class SilverTraderMenu extends UIScriptedMenu
 			return;
 		}
 
-		int maxStackSize = 0;
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
-		}
+		SilverItemConfigCache cache = pluginTrader.GetOrCreateItemCache(classname);
 
-		int maxStacksCount = pluginTrader.CalculateTraderItemQuantityMax(m_traderInfo, classname);
-
-		// canBeSplit pruefen: nur echte Stacks multiplizieren Quantity mit maxStackSize
-		int canBeSplit = 0;
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " canBeSplit"))
+		if (cache.maxStackSize > 0 && !cache.isLiquidContainer)
 		{
-			canBeSplit = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " canBeSplit");
-		}
-
-		if (maxStackSize > 0 && !g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
-		{
-			string stackedUnits = "";
-			if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
-			}
-
 			float item_quantity;
-
-			if (stackedUnits == "pc." && canBeSplit == 1)
+			if (cache.stackedUnit == "pc." && cache.canBeSplit)
 			{
-				item_quantity = quantity * maxStackSize;
+				item_quantity = quantity * cache.maxStackSize;
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", FormatBuyQuantityStr(item_quantity) + " " + "#inv_inspect_pieces");
 			}
-			else if (g_Game.IsKindOf(classname, "Ammunition_Base"))
+			else if (cache.isAmmo)
 			{
-				item_quantity = quantity * maxStackSize;
+				item_quantity = quantity * cache.maxStackSize;
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", FormatBuyQuantityStr(item_quantity) + " " + "#inv_inspect_pieces");
 			}
 			else
@@ -1241,55 +1237,26 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void UpdateItemInfoSelectedQuantity(Widget root_widget, string classname, float quantity, float maxQuantity)
 	{
-		int maxStackSize = 0;
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " varQuantityMax");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_MAGAZINESPATH + " " + classname + " count");
-		}
-		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-		{
-			maxStackSize = g_Game.ConfigGetInt(CFG_WEAPONSPATH + " " + classname + " varQuantityMax");
-		}
+		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+		if (!pluginTrader)
+			return;
 
-		int canBeSplit = 0;
-		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " canBeSplit"))
-		{
-			canBeSplit = g_Game.ConfigGetInt(CFG_VEHICLESPATH + " " + classname + " canBeSplit");
-		}
+		SilverItemConfigCache cache = pluginTrader.GetOrCreateItemCache(classname);
 
-		if (maxStackSize > 0 && !g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " liquidContainerType"))
+		if (cache.maxStackSize > 0 && !cache.isLiquidContainer)
 		{
-			string stackedUnits = "";
-			if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_VEHICLESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_MAGAZINESPATH + " " + classname + " stackedUnit");
-			}
-			else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
-			{
-				stackedUnits = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " stackedUnit");
-			}
-
 			float item_quantity;
 			float item_max_quantity;
-
-			if (stackedUnits == "pc." && canBeSplit == 1)
+			if (cache.stackedUnit == "pc." && cache.canBeSplit)
 			{
-				item_quantity = quantity * maxStackSize;
-				item_max_quantity = maxQuantity * maxStackSize;
+				item_quantity = quantity * cache.maxStackSize;
+				item_max_quantity = maxQuantity * cache.maxStackSize;
 				WidgetTrySetText(root_widget, "ItemSelectedCountWidget", FormatBuyQuantityStr(item_quantity) + "/" + FormatBuyQuantityStr(item_max_quantity) + " " + "#inv_inspect_pieces");
 			}
-			else if (g_Game.IsKindOf(classname, "Ammunition_Base"))
+			else if (cache.isAmmo)
 			{
-				item_quantity = quantity * maxStackSize;
-				item_max_quantity = maxQuantity * maxStackSize;
+				item_quantity = quantity * cache.maxStackSize;
+				item_max_quantity = maxQuantity * cache.maxStackSize;
 				WidgetTrySetText(root_widget, "ItemSelectedCountWidget", FormatBuyQuantityStr(item_quantity) + "/" + FormatBuyQuantityStr(item_max_quantity) + " " + "#inv_inspect_pieces");
 			}
 			else

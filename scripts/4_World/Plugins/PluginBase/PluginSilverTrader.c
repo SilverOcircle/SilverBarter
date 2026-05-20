@@ -6,6 +6,7 @@ class SilverItemConfigCache
 	int    maxStackSize;      // varQuantityMax oder count
 	string stackedUnit;       // z.B. "pc."
 	bool   isAmmo;            // IsKindOf Ammunition_Base
+	bool   canBeSplit;        // canBeSplit == 1 im Config
 	string category;          // Ergebnis von FilterByCategories
 }
 
@@ -1565,6 +1566,7 @@ class PluginSilverTrader extends PluginBase
 		cache.maxStackSize     = 0;
 		cache.stackedUnit      = "";
 		cache.isAmmo           = false;
+		cache.canBeSplit       = false;
 
 		string cfgRoot = "";
 		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
@@ -1598,6 +1600,9 @@ class PluginSilverTrader extends PluginBase
 
 			if (g_Game.ConfigIsExisting(base + " stackedUnit"))
 				cache.stackedUnit = g_Game.ConfigGetTextOut(base + " stackedUnit");
+
+			if (cfgRoot == CFG_VEHICLESPATH && g_Game.ConfigIsExisting(base + " canBeSplit"))
+				cache.canBeSplit = g_Game.ConfigGetInt(base + " canBeSplit") == 1;
 		}
 
 		cache.isAmmo = g_Game.IsKindOf(classname, "Ammunition_Base");
