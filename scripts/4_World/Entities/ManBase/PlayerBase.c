@@ -14,7 +14,9 @@ modded class PlayerBase
 
 		if (rpc_type == SilverRPCManager.CHANNEL_SILVER_BARTER)
 		{
+			#ifdef DEVELOPER
 			Print("[SilverBarter] PlayerBase.OnRPC: RPC received");
+			#endif
 			SilverRPCManager.OnRPC(sender, ctx);
 		}
 	}

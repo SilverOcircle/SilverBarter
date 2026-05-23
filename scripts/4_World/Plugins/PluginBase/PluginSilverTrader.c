@@ -350,7 +350,8 @@ class PluginSilverTrader extends PluginBase
 		Object traderObj = g_Game.CreateObject(trader.m_classname, trader.m_position);
 		if (!traderObj)
 		{
-			Print("[SilverBarter] ERROR: Could not spawn trader NPC: " + trader.m_classname);
+			Print("[SilverBarter] ERROR: Could not spawn trader NPC: " + trader.m_classname + " – cleaning up traderData.");
+			m_traderData.Remove(trader.m_traderId);
 			return;
 		}
 
@@ -376,6 +377,14 @@ class PluginSilverTrader extends PluginBase
 			traderPoint.SetPosition(trader.m_position);
 			traderPoint.SetOrientation(Vector(trader.m_orientation, 0, 0));
 			traderPoint.InitTraderPoint(trader.m_traderId, traderObj);
+		}
+
+		if (!traderPoint)
+		{
+			Print("[SilverBarter] ERROR: TraderPoint creation failed for trader " + trader.m_traderId.ToString() + " – cleaning up NPC and traderData.");
+			g_Game.ObjectDelete(traderObj);
+			m_traderData.Remove(trader.m_traderId);
+			return;
 		}
 
 		m_traderPoints.Insert(trader.m_traderId, traderPoint);
@@ -1067,6 +1076,13 @@ class PluginSilverTrader extends PluginBase
 			}
 
 			approvedBuyItems.Insert(buyClassname1, approvedQty);
+		}
+
+		// Kein einseitiger Sell wenn alle Buy-Items serverseitig ungueltig waren
+		if (validSellItems.Count() > 0 && approvedBuyItems.Count() == 0)
+		{
+			DebugLog("Trade denied: All buy items invalid after server validation for " + sender.GetName());
+			return;
 		}
 
 		// === PHASE 3: Preis nur fuer validierte Items berechnen ===

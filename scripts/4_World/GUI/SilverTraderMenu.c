@@ -855,8 +855,6 @@ class SilverTraderMenu extends UIScriptedMenu
 			delete m_dnCache;
 			m_dnCache = null;
 		}
-
-		Close();
 	}
 
 	private void SelectSellItem(ButtonWidget btn, bool enable)
