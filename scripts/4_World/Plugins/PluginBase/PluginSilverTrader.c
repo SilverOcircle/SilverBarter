@@ -68,6 +68,26 @@ class PluginSilverTrader extends PluginBase
 			TOOL_CLASSES.Insert("SewingKit");
 			TOOL_CLASSES.Insert("LeatherSewingKit");
 			TOOL_CLASSES.Insert("Lockpick");
+			TOOL_CLASSES.Insert("Crowbar");
+			TOOL_CLASSES.Insert("Wrench");
+			TOOL_CLASSES.Insert("SledgeHammer");
+			TOOL_CLASSES.Insert("Cleaver");
+			TOOL_CLASSES.Insert("SteakKnife");
+			TOOL_CLASSES.Insert("KitchenKnife");
+			TOOL_CLASSES.Insert("Broom");
+			TOOL_CLASSES.Insert("Shovel");
+			TOOL_CLASSES.Insert("Pickaxe");
+			TOOL_CLASSES.Insert("Pitchfork");
+			TOOL_CLASSES.Insert("FarmingHoe");
+			TOOL_CLASSES.Insert("OrientalMachete");
+			TOOL_CLASSES.Insert("Machete");
+			TOOL_CLASSES.Insert("FangeKnife");
+			TOOL_CLASSES.Insert("KukriKnife");
+			TOOL_CLASSES.Insert("HuntingKnife");
+			TOOL_CLASSES.Insert("CombatKnife");
+			TOOL_CLASSES.Insert("FirefighterAxe");
+			TOOL_CLASSES.Insert("WoodAxe");
+			TOOL_CLASSES.Insert("Iceaxe");
 		}
 
 		// Cache einmalig initialisieren (Client + Server)
