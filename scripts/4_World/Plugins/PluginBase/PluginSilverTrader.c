@@ -1455,29 +1455,18 @@ class PluginSilverTrader extends PluginBase
 
 	override void OnDestroy()
 	{
-		// Beim Beenden alle Daten speichern
 		SaveAllTraderData();
+
+		CGame game = GetGame();
 
 		if (m_traderPoints)
 		{
 			foreach (int id, TraderPoint obj : m_traderPoints)
 			{
-				if (obj)
-				{
-					g_Game.ObjectDelete(obj);
-				}
+				if (obj && game)
+					game.ObjectDelete(obj);
 			}
-			delete m_traderPoints;
 		}
-
-		if (m_traderCache)
-			delete m_traderCache;
-
-		if (m_traderData)
-			delete m_traderData;
-
-		if (m_dirtyTraders)
-			delete m_dirtyTraders;
 
 		// ZenMap Marker entfernen
 		#ifdef ZenMap
@@ -1490,27 +1479,14 @@ class PluginSilverTrader extends PluginBase
 		}
 		#endif
 
-		// Rotierende Haendler bereinigen
 		if (m_rotatingTraderPoints)
 		{
 			foreach (int rotId, TraderPoint rotObj : m_rotatingTraderPoints)
 			{
-				if (rotObj)
-				{
-					g_Game.ObjectDelete(rotObj);
-				}
+				if (rotObj && game)
+					game.ObjectDelete(rotObj);
 			}
-			delete m_rotatingTraderPoints;
 		}
-
-		if (m_rotatingTraderCache)
-			delete m_rotatingTraderCache;
-
-		if (m_rotatingTraderData)
-			delete m_rotatingTraderData;
-
-		if (m_rotationTimers)
-			delete m_rotationTimers;
 	}
 
 	// ========== BERECHNUNGS-FUNKTIONEN (Client + Server) ==========
@@ -1547,11 +1523,6 @@ class PluginSilverTrader extends PluginBase
 			return 0;
 
 		string classname = item.GetType();
-		float traderTotalQuantity = 0;
-		if (data.m_items.Find(classname, traderTotalQuantity))
-		{
-			// Gefunden
-		}
 
 		float resultPrice = CalculateBuyPrice(trader, data, classname, 1);
 		float commission = trader.GetCommissionForItem(classname);

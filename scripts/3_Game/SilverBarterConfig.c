@@ -20,18 +20,10 @@ class SilverBarterConfig
 		m_traders = new array<ref SilverTrader_ServerConfig>;
 	}
 
-	void ~SilverBarterConfig()
-	{
-		if (m_traders)
-		{
-			m_traders.Clear();
-			delete m_traders;
-		}
-	}
-
 	void Load()
 	{
-		if (!g_Game.IsDedicatedServer())
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -61,7 +53,8 @@ class SilverBarterConfig
 
 	void Save()
 	{
-		if (!g_Game.IsDedicatedServer())
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -364,14 +357,6 @@ class SilverTrader_Data
 		m_items = new map<string, float>;
 	}
 
-	void ~SilverTrader_Data()
-	{
-		if (m_items)
-		{
-			delete m_items;
-		}
-	}
-
 	void LoadFromJson(string path)
 	{
 		if (!FileExist(path))
@@ -465,16 +450,6 @@ class SilverTrader_Info
 	float m_sellMaxQuantityPercent;
 	float m_buyMaxQuantityPercent;
 
-	void ~SilverTrader_Info()
-	{
-		if (m_buyFilter)
-			delete m_buyFilter;
-		if (m_sellFilter)
-			delete m_sellFilter;
-		if (m_commissionOverrides)
-			delete m_commissionOverrides;
-	}
-
 	// Ermittelt Commission fuer ein Item (Override oder Fallback)
 	float GetCommissionForItem(string classname)
 	{
@@ -544,15 +519,6 @@ class SilverRotatingTrader_Config : SilverTrader_Info
 	string m_zenMapMarkerName;                            // Name des Markers auf der Karte
 	string m_zenMapMarkerIcon;                            // Icon-Pfad (leer = Standard)
 
-	void ~SilverRotatingTrader_Config()
-	{
-		if (m_attachments)
-			delete m_attachments;
-		if (m_spawnPositions)
-			delete m_spawnPositions;
-		if (m_poolItems)
-			delete m_poolItems;
-	}
 };
 
 // Server-spezifische Trader-Config (erweitert Info um Spawn-Daten)
@@ -564,15 +530,6 @@ class SilverTrader_ServerConfig : SilverTrader_Info
 	ref array<ref SilverTrader_LimitedItem> m_limitedItems; // Bei Restart auf fixen Wert setzen
 	float m_orientation;
 
-	void ~SilverTrader_ServerConfig()
-	{
-		if (m_attachments)
-			delete m_attachments;
-		if (m_defaultItems)
-			delete m_defaultItems;
-		if (m_limitedItems)
-			delete m_limitedItems;
-	}
 };
 
 // Separate Config fuer rotierende Haendler
@@ -590,18 +547,10 @@ class SilverRotatingTradersConfig
 		m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
 	}
 
-	void ~SilverRotatingTradersConfig()
-	{
-		if (m_rotatingTraders)
-		{
-			m_rotatingTraders.Clear();
-			delete m_rotatingTraders;
-		}
-	}
-
 	void Load()
 	{
-		if (!g_Game.IsDedicatedServer())
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -626,7 +575,8 @@ class SilverRotatingTradersConfig
 
 	void Save()
 	{
-		if (!g_Game.IsDedicatedServer())
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))

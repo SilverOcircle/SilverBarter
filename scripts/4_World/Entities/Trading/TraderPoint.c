@@ -49,9 +49,10 @@ class TraderPoint extends BuildingSuper
 	{
 		super.EEDelete(parent);
 
-		if (m_traderObject)
+		CGame game = GetGame();
+		if (game && game.IsServer() && m_traderObject)
 		{
-			g_Game.ObjectDelete(m_traderObject);
+			game.ObjectDelete(m_traderObject);
 			m_traderObject = null;
 		}
 	}

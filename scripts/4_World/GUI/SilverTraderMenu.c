@@ -78,10 +78,6 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void UpdateMetadata(SilverTrader_Data traderData)
 	{
-		if (m_traderData)
-		{
-			delete m_traderData;
-		}
 		m_traderData = traderData;
 		m_dirty = true;
 	}
@@ -802,59 +798,24 @@ class SilverTraderMenu extends UIScriptedMenu
 		// Pool-Entities jetzt final löschen
 		if (m_previewPool)
 		{
+			CGame game = GetGame();
 			for (int pi = 0; pi < m_previewPool.Count(); pi++)
 			{
 				EntityAI e = m_previewPool.GetElement(pi);
-				if (e)
-					g_Game.ObjectDelete(e);
+				if (e && game)
+					game.ObjectDelete(e);
 			}
-			delete m_previewPool;
 			m_previewPool = null;
 		}
 
-		if (m_previewByIndex)
-		{
-			delete m_previewByIndex;
-			m_previewByIndex = null;
-		}
-
-		if (m_traderInfo)
-		{
-			delete m_traderInfo;
-			m_traderInfo = null;
-		}
-
-		if (m_traderData)
-		{
-			delete m_traderData;
-			m_traderData = null;
-		}
-
-		if (m_buyData)
-		{
-			delete m_buyData;
-			m_buyData = null;
-		}
-		if (m_sellWidgetsCache)
-		{
-			delete m_sellWidgetsCache;
-			m_sellWidgetsCache = null;
-		}
-		if (m_buyWidgetsCache)
-		{
-			delete m_buyWidgetsCache;
-			m_buyWidgetsCache = null;
-		}
-		if (m_filterData)
-		{
-			delete m_filterData;
-			m_filterData = null;
-		}
-		if (m_dnCache)
-		{
-			delete m_dnCache;
-			m_dnCache = null;
-		}
+		m_previewByIndex = null;
+		m_traderInfo = null;
+		m_traderData = null;
+		m_buyData = null;
+		m_sellWidgetsCache = null;
+		m_buyWidgetsCache = null;
+		m_filterData = null;
+		m_dnCache = null;
 	}
 
 	private void SelectSellItem(ButtonWidget btn, bool enable)
