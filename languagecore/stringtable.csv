@@ -12,7 +12,7 @@ silver_trader_filter_food,"Food","Food","Food","Nahrung","Продукты","Foo
 silver_trader_filter_clothing,"Clothing","Clothing","Clothing","Kleidung","Одежда","Clothing"
 silver_trader_filter_medical,"Medicine","Medicine","Medicine","Medizin","Медицина","Medicine"
 silver_trader_filter_electronic,"Electronics","Electronics","Electronics","Electronik","Электроника","Electronics"
-silver_trader_filter_base_building,"Skills","Skills","Skills","Skills","Навыки","Skills"
+silver_trader_filter_base_building,"Base Building","Base Building","Base Building","Basisbau","Стройматериалы","Construction de base"
 silver_trader_filter_vehicle_parts,"Vehicle parts","Vehicle parts","Vehicle parts","Fahrzeugteile","Автозапчасти","Vehicle parts"
 silver_trader_filter_other,"Other","Other","Other","Sonstiges","Прочее","Other"
 silver_trader_forbuy,"Trader items:","Trader items:","Trader items:","Händler Gegenstände","Товары торговца:","Trader items:"

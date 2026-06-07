@@ -88,6 +88,8 @@ class PluginSilverTrader extends PluginBase
 			TOOL_CLASSES.Insert("FirefighterAxe");
 			TOOL_CLASSES.Insert("WoodAxe");
 			TOOL_CLASSES.Insert("Iceaxe");
+			TOOL_CLASSES.Insert("MeatTenderizer");
+			TOOL_CLASSES.Insert("Blowtorch");
 		}
 
 		// Cache einmalig initialisieren (Client + Server)
@@ -1649,6 +1651,10 @@ class PluginSilverTrader extends PluginBase
 			{
 				cat = "vehicle_parts";
 			}
+			else if (g_Game.IsKindOf(classname, "BaseBuildingBase") || g_Game.IsKindOf(classname, "Container_Base")	|| (g_Game.ConfigIsExisting(vBase + " baseBuildingItem") && g_Game.ConfigGetInt(vBase + " baseBuildingItem") == 1))
+			{
+				cat = "base_building";
+			}
 			else if (g_Game.ConfigIsExisting(vBase + " inventorySlot"))
 			{
 				TStringArray invSlots = new TStringArray;
@@ -1682,8 +1688,6 @@ class PluginSilverTrader extends PluginBase
 				cat = "food";
 			else if (g_Game.IsKindOf(classname, "Clothing_Base"))
 				cat = "clothing";
-			else if (classname.IndexOf("ZenSkills_") == 0 || classname.IndexOf("TerjeBook") == 0)
-				cat = "base_building";
 		}
 
 		cat.ToLower();
