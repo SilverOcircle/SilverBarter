@@ -16,13 +16,18 @@ class PluginSilverTrader extends PluginBase
 	// Werkzeug-Klassen fuer Kategorie-Filter (Client + Server)
 	static ref array<string> TOOL_CLASSES;
 
+	// Gueltige Filter-Kategorien (fuer Kategorie-Overrides, verhindert Tippfehler-Ausfaelle)
+	static ref array<string> VALID_CATEGORIES;
+
 	// Client-Seite
 	ref SilverTraderMenu m_traderMenu;
 	ref array<string> m_quantityPriceClassnamesClient;
+	ref array<ref SilverCategoryOverride> m_categoryOverridesClient;
 
 	// Server-Seite
 	ref SilverBarterConfig m_config;
 	ref SilverRotatingTradersConfig m_rotatingConfig;
+	ref SilverCategoryOverridesConfig m_categoryOverridesConfig;
 	ref map<int, TraderPoint> m_traderPoints;
 	ref map<int, ref SilverTrader_ServerConfig> m_traderCache;
 	ref map<int, ref SilverTrader_Data> m_traderData;
@@ -89,7 +94,23 @@ class PluginSilverTrader extends PluginBase
 			TOOL_CLASSES.Insert("WoodAxe");
 			TOOL_CLASSES.Insert("Iceaxe");
 			TOOL_CLASSES.Insert("MeatTenderizer");
-			TOOL_CLASSES.Insert("Blowtorch");
+		}
+
+		if (!VALID_CATEGORIES)
+		{
+			VALID_CATEGORIES = new array<string>;
+			VALID_CATEGORIES.Insert("weapons");
+			VALID_CATEGORIES.Insert("magazines");
+			VALID_CATEGORIES.Insert("attachments");
+			VALID_CATEGORIES.Insert("ammo");
+			VALID_CATEGORIES.Insert("tools");
+			VALID_CATEGORIES.Insert("food");
+			VALID_CATEGORIES.Insert("clothing");
+			VALID_CATEGORIES.Insert("medical");
+			VALID_CATEGORIES.Insert("electronic");
+			VALID_CATEGORIES.Insert("base_building");
+			VALID_CATEGORIES.Insert("vehicle_parts");
+			VALID_CATEGORIES.Insert("other");
 		}
 
 		// Cache einmalig initialisieren (Client + Server)
@@ -117,6 +138,7 @@ class PluginSilverTrader extends PluginBase
 
 			m_config = GetSilverBarterConfig();
 			m_rotatingConfig = GetSilverRotatingTradersConfig();
+			m_categoryOverridesConfig = GetSilverCategoryOverridesConfig();
 		}
 	}
 
@@ -212,6 +234,29 @@ class PluginSilverTrader extends PluginBase
 			if (!ctx.Read(qpClass)) return;
 			m_quantityPriceClassnamesClient.Insert(qpClass);
 		}
+
+		// Kategorie-Overrides lesen (global, client-only)
+		int catOverrideCount;
+		if (!ctx.Read(catOverrideCount)) return;
+		m_categoryOverridesClient = new array<ref SilverCategoryOverride>;
+		for (int co = 0; co < catOverrideCount; co++)
+		{
+			string ovPattern, ovCategory;
+			bool ovPrefixOnly;
+			if (!ctx.Read(ovPattern)) return;
+			if (!ctx.Read(ovCategory)) return;
+			if (!ctx.Read(ovPrefixOnly)) return;
+
+			SilverCategoryOverride catOverrideEntry = new SilverCategoryOverride();
+			catOverrideEntry.pattern = ovPattern;
+			catOverrideEntry.category = ovCategory;
+			catOverrideEntry.prefixOnly = ovPrefixOnly;
+			m_categoryOverridesClient.Insert(catOverrideEntry);
+		}
+
+		// Bereits gecachte Kategorien koennten ohne Override-Kenntnis berechnet worden sein
+		if (m_itemConfigCache)
+			m_itemConfigCache.Clear();
 
 		// Items lesen
 		int itemCount;
@@ -866,6 +911,31 @@ class PluginSilverTrader extends PluginBase
 		for (int qp = 0; qp < qpCount; qp++)
 		{
 			rpc.Write(m_config.m_quantityPriceClassnames.Get(qp));
+		}
+
+		// Kategorie-Overrides (global, nur wenn aktiviert; ungueltige Eintraege ueberspringen)
+		int catOverrideCount = 0;
+		if (m_categoryOverridesConfig && m_categoryOverridesConfig.m_enabled && m_categoryOverridesConfig.m_categoryOverrides)
+		{
+			foreach (SilverCategoryOverride countEntry : m_categoryOverridesConfig.m_categoryOverrides)
+			{
+				if (countEntry && countEntry.pattern != "" && countEntry.category != "")
+					catOverrideCount++;
+			}
+		}
+		rpc.Write(catOverrideCount);
+
+		if (catOverrideCount > 0)
+		{
+			foreach (SilverCategoryOverride writeEntry : m_categoryOverridesConfig.m_categoryOverrides)
+			{
+				if (!writeEntry || writeEntry.pattern == "" || writeEntry.category == "")
+					continue;
+
+				rpc.Write(writeEntry.pattern);
+				rpc.Write(writeEntry.category);
+				rpc.Write(writeEntry.prefixOnly);
+			}
 		}
 
 		// Trader-Data (Items) als Key-Value Paare
@@ -1563,6 +1633,60 @@ class PluginSilverTrader extends PluginBase
 		return (int)Math.Floor(resultPrice);
 	}
 
+	// Kategorie-Override fuer classname suchen (Server-Config wenn aktiv, sonst client-gesyncte Liste)
+	private string GetCategoryOverride(string classname)
+	{
+		if (m_categoryOverridesConfig && m_categoryOverridesConfig.m_enabled && m_categoryOverridesConfig.m_categoryOverrides)
+		{
+			foreach (SilverCategoryOverride ovServer : m_categoryOverridesConfig.m_categoryOverrides)
+			{
+				if (MatchCategoryOverride(classname, ovServer))
+				{
+					string serverCategory = ovServer.category;
+					serverCategory.ToLower();
+					return serverCategory;
+				}
+			}
+		}
+		else if (m_categoryOverridesClient)
+		{
+			foreach (SilverCategoryOverride ovClient : m_categoryOverridesClient)
+			{
+				if (MatchCategoryOverride(classname, ovClient))
+				{
+					string clientCategory = ovClient.category;
+					clientCategory.ToLower();
+					return clientCategory;
+				}
+			}
+		}
+
+		return "";
+	}
+
+	private bool MatchCategoryOverride(string classname, SilverCategoryOverride ov)
+	{
+		if (!ov || ov.pattern == "" || ov.category == "")
+			return false;
+
+		string ovCategory = ov.category;
+		ovCategory.ToLower();
+
+		if (!IsValidCategory(ovCategory))
+			return false;
+
+		if (ov.prefixOnly)
+			return classname.IndexOf(ov.pattern) == 0;
+
+		return classname == ov.pattern;
+	}
+
+	private bool IsValidCategory(string category)
+	{
+		category.ToLower();
+		return VALID_CATEGORIES && VALID_CATEGORIES.Find(category) >= 0;
+	}
+
 	SilverItemConfigCache GetOrCreateItemCache(string classname)
 	{
 		SilverItemConfigCache cache;
@@ -1689,6 +1813,10 @@ class PluginSilverTrader extends PluginBase
 			else if (g_Game.IsKindOf(classname, "Clothing_Base"))
 				cat = "clothing";
 		}
+
+		string overrideCategory = GetCategoryOverride(classname);
+		if (overrideCategory != "")
+			cat = overrideCategory;
 
 		cat.ToLower();
 		cache.category = cat;

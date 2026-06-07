@@ -960,9 +960,105 @@ class SilverRotatingTradersConfig
 	}
 };
 
+// Globaler Override fuer die Filter-Kategorie eines Classnames
+class SilverCategoryOverride
+{
+	string pattern;    // z.B. "ZenSkills_" oder exakter Classname
+	string category;   // Ziel-Kategorie, z.B. "other", "base_building"
+	bool   prefixOnly; // true = IndexOf(pattern) == 0, false = exakter Classname-Vergleich
+};
+
+// Separate Config fuer Kategorie-Overrides (standardmaessig deaktiviert)
+class SilverCategoryOverridesConfig
+{
+	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
+	private const static string CONFIG_NAME = "SilverBarterCategoryOverrides.json";
+	private const static string CURRENT_VERSION = "1";
+
+	string CONFIG_VERSION;
+	bool m_enabled;
+	ref array<ref SilverCategoryOverride> m_categoryOverrides;
+
+	void SilverCategoryOverridesConfig()
+	{
+		m_categoryOverrides = new array<ref SilverCategoryOverride>;
+	}
+
+	void Load()
+	{
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
+			return;
+
+		if (!FileExist(MOD_FOLDER))
+		{
+			MakeDirectory(MOD_FOLDER);
+		}
+
+		string path = MOD_FOLDER + CONFIG_NAME;
+		if (FileExist(path))
+		{
+			Print("[SilverBarter] Loading category overrides config: " + path);
+			JsonFileLoader<SilverCategoryOverridesConfig>.JsonLoadFile(path, this);
+			Print("[SilverBarter] Category overrides config load finished. If there are JSON errors above, fix the file manually.");
+		}
+		else
+		{
+			SetDefaultValues();
+			CONFIG_VERSION = CURRENT_VERSION;
+			Save();
+		}
+	}
+
+	void Save()
+	{
+		CGame game = GetGame();
+		if (!game || !game.IsDedicatedServer())
+			return;
+
+		if (!FileExist(MOD_FOLDER))
+		{
+			MakeDirectory(MOD_FOLDER);
+		}
+
+		JsonFileLoader<SilverCategoryOverridesConfig>.JsonSaveFile(MOD_FOLDER + CONFIG_NAME, this);
+	}
+
+	private void Migrate()
+	{
+		// Keine Migrationen aktuell noetig
+	}
+
+	void SetDefaultValues()
+	{
+		m_enabled = false;
+		m_categoryOverrides = new array<ref SilverCategoryOverride>;
+
+		// Mustereintraege als Vorlage (greifen erst nach Aktivierung via m_enabled = true)
+		SilverCategoryOverride exampleSkills = new SilverCategoryOverride();
+		exampleSkills.pattern = "ZenSkills_";
+		exampleSkills.category = "other";
+		exampleSkills.prefixOnly = true;
+		m_categoryOverrides.Insert(exampleSkills);
+
+		SilverCategoryOverride exampleTerjeBook = new SilverCategoryOverride();
+		exampleTerjeBook.pattern = "TerjeBook";
+		exampleTerjeBook.category = "other";
+		exampleTerjeBook.prefixOnly = true;
+		m_categoryOverrides.Insert(exampleTerjeBook);
+
+		SilverCategoryOverride exampleSeaChest = new SilverCategoryOverride();
+		exampleSeaChest.pattern = "SeaChest";
+		exampleSeaChest.category = "base_building";
+		exampleSeaChest.prefixOnly = false;
+		m_categoryOverrides.Insert(exampleSeaChest);
+	}
+};
+
 // Globaler Config-Accessor
 static ref SilverBarterConfig g_SilverBarterConfig;
 static ref SilverRotatingTradersConfig g_SilverRotatingTradersConfig;
+static ref SilverCategoryOverridesConfig g_SilverCategoryOverridesConfig;
 
 static SilverBarterConfig GetSilverBarterConfig()
 {
@@ -984,4 +1080,15 @@ static SilverRotatingTradersConfig GetSilverRotatingTradersConfig()
 		g_SilverRotatingTradersConfig.Load();
 	}
 	return g_SilverRotatingTradersConfig;
+}
+
+static SilverCategoryOverridesConfig GetSilverCategoryOverridesConfig()
+{
+	if (!g_SilverCategoryOverridesConfig)
+	{
+		Print("[SilverBarter] Initializing category overrides config...");
+		g_SilverCategoryOverridesConfig = new SilverCategoryOverridesConfig();
+		g_SilverCategoryOverridesConfig.Load();
+	}
+	return g_SilverCategoryOverridesConfig;
 }
