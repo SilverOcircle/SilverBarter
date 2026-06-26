@@ -23,6 +23,7 @@ class PluginSilverTrader extends PluginBase
 	ref SilverTraderMenu m_traderMenu;
 	ref array<string> m_quantityPriceClassnamesClient;
 	ref array<ref SilverCategoryOverride> m_categoryOverridesClient;
+	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliersClient;
 
 	// Server-Seite
 	ref SilverBarterConfig m_config;
@@ -224,6 +225,26 @@ class PluginSilverTrader extends PluginBase
 			traderInfo.m_commissionOverrides.Insert(ovEntry);
 		}
 
+		// Trader-spezifische Kategorie-Wert-Multiplikatoren lesen (optional)
+		int traderCatValueMultiplierCount;
+		if (!ctx.Read(traderCatValueMultiplierCount)) return;
+		traderInfo.m_categoryValueMultipliers = new array<ref SilverCategoryValueMultiplier>;
+		for (int tcm = 0; tcm < traderCatValueMultiplierCount; tcm++)
+		{
+			string tcmCategory;
+			float tcmMultiplier;
+			if (!ctx.Read(tcmCategory)) return;
+			if (!ctx.Read(tcmMultiplier)) return;
+
+			if (tcmCategory == "" || tcmMultiplier <= 0 || !IsValidCategory(tcmCategory))
+				continue;
+
+			SilverCategoryValueMultiplier tcmEntry = new SilverCategoryValueMultiplier();
+			tcmEntry.category = tcmCategory;
+			tcmEntry.multiplier = tcmMultiplier;
+			traderInfo.m_categoryValueMultipliers.Insert(tcmEntry);
+		}
+
 		// QuantityPrice-Classnames lesen (global, client-only)
 		int qpCount;
 		if (!ctx.Read(qpCount)) return;
@@ -252,6 +273,26 @@ class PluginSilverTrader extends PluginBase
 			catOverrideEntry.category = ovCategory;
 			catOverrideEntry.prefixOnly = ovPrefixOnly;
 			m_categoryOverridesClient.Insert(catOverrideEntry);
+		}
+
+		// Kategorie-Wert-Multiplikatoren lesen (global, client-only)
+		int catValueMultiplierCount;
+		if (!ctx.Read(catValueMultiplierCount)) return;
+		m_categoryValueMultipliersClient = new array<ref SilverCategoryValueMultiplier>;
+		for (int cm = 0; cm < catValueMultiplierCount; cm++)
+		{
+			string cmCategory;
+			float cmMultiplier;
+			if (!ctx.Read(cmCategory)) return;
+			if (!ctx.Read(cmMultiplier)) return;
+
+			if (cmCategory == "" || cmMultiplier <= 0 || !IsValidCategory(cmCategory))
+				continue;
+
+			SilverCategoryValueMultiplier cmEntry = new SilverCategoryValueMultiplier();
+			cmEntry.category = cmCategory;
+			cmEntry.multiplier = cmMultiplier;
+			m_categoryValueMultipliersClient.Insert(cmEntry);
 		}
 
 		// Bereits gecachte Kategorien koennten ohne Override-Kenntnis berechnet worden sein
@@ -903,6 +944,30 @@ class PluginSilverTrader extends PluginBase
 			rpc.Write(trader.m_commissionOverrides.Get(ov).commission);
 		}
 
+		// Trader-spezifische Kategorie-Wert-Multiplikatoren (optional; ungueltige Eintraege ueberspringen)
+		int traderCatValueMultiplierCount = 0;
+		if (trader.m_categoryValueMultipliers)
+		{
+			foreach (SilverCategoryValueMultiplier countTraderMultEntry : trader.m_categoryValueMultipliers)
+			{
+				if (countTraderMultEntry && countTraderMultEntry.category != "" && countTraderMultEntry.multiplier > 0 && IsValidCategory(countTraderMultEntry.category))
+					traderCatValueMultiplierCount++;
+			}
+		}
+		rpc.Write(traderCatValueMultiplierCount);
+
+		if (traderCatValueMultiplierCount > 0)
+		{
+			foreach (SilverCategoryValueMultiplier writeTraderMultEntry : trader.m_categoryValueMultipliers)
+			{
+				if (!writeTraderMultEntry || writeTraderMultEntry.category == "" || writeTraderMultEntry.multiplier <= 0 || !IsValidCategory(writeTraderMultEntry.category))
+					continue;
+
+				rpc.Write(writeTraderMultEntry.category);
+				rpc.Write(writeTraderMultEntry.multiplier);
+			}
+		}
+
 		// QuantityPrice-Classnames (global)
 		int qpCount = 0;
 		if (m_config && m_config.m_quantityPriceClassnames)
@@ -935,6 +1000,30 @@ class PluginSilverTrader extends PluginBase
 				rpc.Write(writeEntry.pattern);
 				rpc.Write(writeEntry.category);
 				rpc.Write(writeEntry.prefixOnly);
+			}
+		}
+
+		// Kategorie-Wert-Multiplikatoren (global; ungueltige Eintraege ueberspringen)
+		int catValueMultiplierCount = 0;
+		if (m_config && m_config.m_categoryValueMultipliers)
+		{
+			foreach (SilverCategoryValueMultiplier countMultEntry : m_config.m_categoryValueMultipliers)
+			{
+				if (countMultEntry && countMultEntry.category != "" && countMultEntry.multiplier > 0 && IsValidCategory(countMultEntry.category))
+					catValueMultiplierCount++;
+			}
+		}
+		rpc.Write(catValueMultiplierCount);
+
+		if (catValueMultiplierCount > 0)
+		{
+			foreach (SilverCategoryValueMultiplier writeMultEntry : m_config.m_categoryValueMultipliers)
+			{
+				if (!writeMultEntry || writeMultEntry.category == "" || writeMultEntry.multiplier <= 0 || !IsValidCategory(writeMultEntry.category))
+					continue;
+
+				rpc.Write(writeMultEntry.category);
+				rpc.Write(writeMultEntry.multiplier);
 			}
 		}
 
@@ -1624,13 +1713,68 @@ class PluginSilverTrader extends PluginBase
 		quantity = Math.Min(quantity, itemMaxQuantity);
 		totalQuantity = Math.Min(totalQuantity, itemMaxQuantity);
 
-		float resultPrice = CalculateDumping(trader.m_dumpingByAmountAlgorithm, trader.m_dumpingByAmountModifier, (int)totalQuantity, (int)itemMaxQuantity);
-		resultPrice = resultPrice * quantity * 1000;
+		float basePrice = CalculateDumping(trader.m_dumpingByAmountAlgorithm, trader.m_dumpingByAmountModifier, (int)totalQuantity, (int)itemMaxQuantity);
+		basePrice = basePrice * quantity * 1000;
+
+		float resultPrice = basePrice * GetCategoryValueMultiplier(trader, classname);
 
 		if (resultPrice < 1)
 			return 1;
 
 		return (int)Math.Floor(resultPrice);
+	}
+
+	// Wert-Multiplikator fuer die Item-Kategorie: zuerst trader-spezifisch, danach global (Server-Config bzw. client-gesyncte Liste)
+	float GetCategoryValueMultiplier(SilverTrader_Info trader, string classname)
+	{
+		string category = GetOrCreateItemCache(classname).category;
+		if (category == "" || !IsValidCategory(category))
+			return 1.0;
+
+		if (trader && trader.m_categoryValueMultipliers)
+		{
+			foreach (SilverCategoryValueMultiplier traderMultEntry : trader.m_categoryValueMultipliers)
+			{
+				float traderMultiplier = MatchCategoryValueMultiplier(category, traderMultEntry);
+				if (traderMultiplier > 0)
+					return traderMultiplier;
+			}
+		}
+
+		if (m_config && m_config.m_categoryValueMultipliers)
+		{
+			foreach (SilverCategoryValueMultiplier serverMultEntry : m_config.m_categoryValueMultipliers)
+			{
+				float serverMultiplier = MatchCategoryValueMultiplier(category, serverMultEntry);
+				if (serverMultiplier > 0)
+					return serverMultiplier;
+			}
+		}
+		else if (m_categoryValueMultipliersClient)
+		{
+			foreach (SilverCategoryValueMultiplier clientMultEntry : m_categoryValueMultipliersClient)
+			{
+				float clientMultiplier = MatchCategoryValueMultiplier(category, clientMultEntry);
+				if (clientMultiplier > 0)
+					return clientMultiplier;
+			}
+		}
+
+		return 1.0;
+	}
+
+	private float MatchCategoryValueMultiplier(string category, SilverCategoryValueMultiplier entry)
+	{
+		if (!entry || entry.category == "" || entry.multiplier <= 0)
+			return 0;
+
+		string entryCategory = entry.category;
+		entryCategory.ToLower();
+
+		if (entryCategory == category)
+			return entry.multiplier;
+
+		return 0;
 	}
 
 	// Kategorie-Override fuer classname suchen (Server-Config wenn aktiv, sonst client-gesyncte Liste)

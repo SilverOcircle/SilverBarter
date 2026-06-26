@@ -11,6 +11,7 @@ class SilverBarterConfig
 	// Globale Einstellungen
 	bool m_debugMode;
 	ref array<string> m_quantityPriceClassnames;
+	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers;
 
 	// Trader-Konfiguration
 	ref array<ref SilverTrader_ServerConfig> m_traders;
@@ -37,6 +38,12 @@ class SilverBarterConfig
 			Print("[SilverBarter] Loading config: " + path);
 			JsonFileLoader<SilverBarterConfig>.JsonLoadFile(path, this);
 			Print("[SilverBarter] Config load finished. If there are JSON errors above, fix the file manually.");
+
+			if (!m_categoryValueMultipliers)
+			{
+				Print("[SilverBarter] WARNING: m_categoryValueMultipliers missing or config load failed, using runtime defaults only");
+				SetDefaultCategoryValueMultipliers();
+			}
 		}
 		else
 		{
@@ -69,6 +76,7 @@ class SilverBarterConfig
 	{
 		m_debugMode = false;
 		m_traders = new array<ref SilverTrader_ServerConfig>;
+		SetDefaultCategoryValueMultipliers();
 
 		// Beispiel-Trader
 		SilverTrader_ServerConfig exampleTrader = new SilverTrader_ServerConfig();
@@ -345,6 +353,38 @@ class SilverBarterConfig
 
 		m_traders.Insert(exampleTrader);
 	}
+
+	private void SetDefaultCategoryValueMultipliers()
+	{
+		m_categoryValueMultipliers = new array<ref SilverCategoryValueMultiplier>;
+		InsertCategoryValueMultiplier("weapons", 1.0);
+		InsertCategoryValueMultiplier("attachments", 1.0);
+		InsertCategoryValueMultiplier("magazines", 1.0);
+		InsertCategoryValueMultiplier("ammo", 1.0);
+		InsertCategoryValueMultiplier("tools", 1.0);
+		InsertCategoryValueMultiplier("food", 1.0);
+		InsertCategoryValueMultiplier("clothing", 1.0);
+		InsertCategoryValueMultiplier("medical", 1.0);
+		InsertCategoryValueMultiplier("electronic", 1.0);
+		InsertCategoryValueMultiplier("base_building", 1.0);
+		InsertCategoryValueMultiplier("vehicle_parts", 1.0);
+		InsertCategoryValueMultiplier("other", 1.0);
+	}
+
+	private void InsertCategoryValueMultiplier(string category, float multiplier)
+	{
+		SilverCategoryValueMultiplier entry = new SilverCategoryValueMultiplier();
+		entry.category = category;
+		entry.multiplier = multiplier;
+		m_categoryValueMultipliers.Insert(entry);
+	}
+};
+
+// Kategorie-Wert-Multiplikator (wirkt auf BuyPrice je nach Item-Kategorie aus dem Cache)
+class SilverCategoryValueMultiplier
+{
+	string category;
+	float multiplier;
 };
 
 // Trader-Daten Klasse (Inventar eines Traders)
@@ -442,6 +482,7 @@ class SilverTrader_Info
 	ref array<string> m_buyFilter;
 	ref array<string> m_sellFilter;
 	ref array<ref SilverCommissionOverride> m_commissionOverrides; // Item-spezifische Commission
+	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers; // Trader-spezifische Kategorie-Multiplikatoren (optional)
 	int m_storageMaxSize;
 	float m_storageCommission;
 	string m_dumpingByAmountAlgorithm;

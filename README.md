@@ -30,6 +30,7 @@ That's why I took it upon myself to bring it back, making it as stable and robus
 - [Security Notes](#security-notes)
 - [Rotating Pool Traders](#rotating-pool-traders)
 - [Category Overrides](#category-overrides)
+- [Category Value Multipliers](#category-value-multipliers)
 - [ZenMap Integration](#zenmap-integration)
 - [Troubleshooting](#troubleshooting)
 - [Support the Project](#support-the-project)
@@ -95,9 +96,11 @@ Trader inventories are saved to `$profile:\SilverBarter\TraderData\trader_X.json
 All prices are calculated in abstract "value units" (not displayed to players).
 
 ```
-BuyPrice = DumpingMultiplier * Quantity * 1000
+BuyPrice = DumpingMultiplier * Quantity * 1000 * CategoryValueMultiplier
 SellPrice = BuyPrice * (1 - Commission) * ItemQuantity01 * QualityMultiplier
 ```
+
+`CategoryValueMultiplier` scales the price by the item's filter category (weapons, food, ammo, ...) so whole categories can be worth more or less without per-item price lists. See [Category Value Multipliers](#category-value-multipliers) below.
 
 ### Dumping (Supply/Demand)
 
@@ -176,6 +179,7 @@ Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 |-------|------|---------|-------------|
 | `m_debugMode` | bool | false | Enable verbose logging to RPT file. Useful for troubleshooting. Disable in production to reduce log spam. |
 | `m_quantityPriceClassnames` | array | [] | List of item classnames whose sell price is scaled by their current fill level (quantity ratio). Useful for stackable or refillable items where a half-full item should sell for less than a full one. |
+| `m_categoryValueMultipliers` | array | (see below) | Per-category price multiplier applied to `BuyPrice` (and therefore `SellPrice`). Lets whole categories be worth more or less without per-item price lists. See [Category Value Multipliers](#category-value-multipliers). |
 
 **How `m_quantityPriceClassnames` works:**
 
@@ -284,6 +288,27 @@ Override the default commission for specific item types:
 ```
 
 Lower commission = player keeps more value when selling. Use this for rare/valuable items.
+
+#### Category Value Multiplier Overrides
+
+Each trader can optionally define its own category multipliers, overriding the global ones from [Category Value Multipliers](#category-value-multipliers) for that trader only:
+
+```json
+"m_categoryValueMultipliers": [
+    {
+        "category": "weapons",
+        "multiplier": 12.0
+    },
+    {
+        "category": "food",
+        "multiplier": 0.05
+    }
+]
+```
+
+Lookup order for a given item's category: **trader override → global `m_categoryValueMultipliers` → 1.0 fallback**. Leave this field out (or empty) to use the global values for every category — most traders won't need it. Invalid categories or multipliers ≤ 0 are ignored.
+
+Use this for a specialized trader, e.g. a weapons dealer that pays better than average for guns (`weapons: 12.0` above) while still using the global multiplier for everything else, or a trader that intentionally undervalues a category they don't want to stock up on (`food: 0.05`).
 
 #### Limited Items
 
@@ -512,6 +537,59 @@ With this config:
 - Only the **exact** item `SeaChest` is moved to **Base Building** — items like `SeaChestBig` would be unaffected.
 
 > Overrides are applied **unconditionally** — they take priority over automatic detection. This makes them useful both for moving items you simply prefer elsewhere, and for fixing items the automatic detection classifies incorrectly.
+
+---
+
+## Category Value Multipliers
+
+By default, the buy price formula only reacts to supply/demand (dumping) — every item is worth the same base value per category. Category Value Multipliers let you scale the price up or down for an entire filter category (Weapons, Food, Ammo, ...), so e.g. weapons can be inherently more valuable than canned food, without maintaining a price list per item.
+
+The multiplier is applied directly in `BuyPrice = DumpingMultiplier * Quantity * 1000 * CategoryValueMultiplier`, and since `SellPrice` is derived from `BuyPrice`, it affects both buying and selling automatically. The category used is the same one [Category Overrides](#category-overrides) writes to — so a redirected item picks up the multiplier of its new category too.
+
+### Configuration
+
+Global multipliers live directly in `m_categoryValueMultipliers` inside `SilverBarterConfig.json` (no separate file). They are generated with defaults on first start, and if you update the mod from an older version without this field, it is automatically backfilled with the same defaults on the next config load.
+
+```json
+"m_categoryValueMultipliers": [
+    { "category": "weapons", "multiplier": 8.0 },
+    { "category": "attachments", "multiplier": 3.0 },
+    { "category": "magazines", "multiplier": 2.0 },
+    { "category": "ammo", "multiplier": 0.25 },
+    { "category": "tools", "multiplier": 1.0 },
+    { "category": "food", "multiplier": 0.15 },
+    { "category": "clothing", "multiplier": 0.6 },
+    { "category": "medical", "multiplier": 0.8 },
+    { "category": "electronic", "multiplier": 1.2 },
+    { "category": "base_building", "multiplier": 1.2 },
+    { "category": "vehicle_parts", "multiplier": 2.5 },
+    { "category": "other", "multiplier": 1.0 }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `category` | string | One of the [valid categories](#valid-categories). Unknown/misspelled values are ignored. |
+| `multiplier` | float | Price multiplier for that category. Must be `> 0` — zero or negative values are ignored and the category falls back to `1.0`. |
+
+Individual traders can also define their own multipliers that take priority over these global values for that trader only — see [Category Value Multiplier Overrides](#category-value-multiplier-overrides).
+
+### Examples
+
+**1. Make ammo nearly worthless to buy, but keep it fairly valuable to find:**
+```json
+{ "category": "ammo", "multiplier": 0.1 }
+```
+A 20-round box that previously cost 1000 units at empty stock now costs only 100 units — encourages players to actually buy ammo instead of hoarding what they loot.
+
+**2. Make vehicle parts the most expensive category server-wide:**
+```json
+{ "category": "vehicle_parts", "multiplier": 6.0 }
+```
+Every trader's buy/sell price for vehicle parts is multiplied by 6 instead of the default 2.5, making car repairs a serious investment.
+
+**3. Combine with a trader override (see below) for a "black market" weapons dealer:**
+Keep the global `weapons: 8.0`, but give one specific trader `weapons: 20.0` in its own `m_categoryValueMultipliers` — that trader alone pays/charges far more for guns, while every other trader still uses the global value.
 
 ---
 
