@@ -552,17 +552,17 @@ Global multipliers live directly in `m_categoryValueMultipliers` inside `SilverB
 
 ```json
 "m_categoryValueMultipliers": [
-    { "category": "weapons", "multiplier": 8.0 },
-    { "category": "attachments", "multiplier": 3.0 },
-    { "category": "magazines", "multiplier": 2.0 },
-    { "category": "ammo", "multiplier": 0.25 },
+    { "category": "weapons", "multiplier": 1.0 },
+    { "category": "attachments", "multiplier": 1.0 },
+    { "category": "magazines", "multiplier": 1.0 },
+    { "category": "ammo", "multiplier": 1.0 },
     { "category": "tools", "multiplier": 1.0 },
-    { "category": "food", "multiplier": 0.15 },
-    { "category": "clothing", "multiplier": 0.6 },
-    { "category": "medical", "multiplier": 0.8 },
-    { "category": "electronic", "multiplier": 1.2 },
-    { "category": "base_building", "multiplier": 1.2 },
-    { "category": "vehicle_parts", "multiplier": 2.5 },
+    { "category": "food", "multiplier": 1.0 },
+    { "category": "clothing", "multiplier": 1.0 },
+    { "category": "medical", "multiplier": 1.0 },
+    { "category": "electronic", "multiplier": 1.0 },
+    { "category": "base_building", "multiplier": 1.0 },
+    { "category": "vehicle_parts", "multiplier": 1.0 },
     { "category": "other", "multiplier": 1.0 }
 ]
 ```
