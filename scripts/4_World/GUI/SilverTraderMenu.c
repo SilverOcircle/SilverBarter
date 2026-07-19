@@ -27,6 +27,9 @@ class SilverTraderMenu extends UIScriptedMenu
 	ref array<ref Widget> m_buyWidgetsCache;
 	ref array<ref SilverTraderMenu_BuyData> m_buyData;
 
+	// Persistente Kauf-Auswahl (Classname -> gewaehlte Menge), uebersteht Filter-Toggles und Rebuilds
+	ref map<string, float> m_buySelectedQuantities;
+
 	// Lazy-Preview: Pool (classname→Entity) + aktive Zuordnung (index→Entity)
 	ref map<string, EntityAI> m_previewPool;
 	ref map<int, EntityAI> m_previewByIndex;
@@ -41,6 +44,9 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	float m_currentBarterProgress = 0;
 	bool m_blockBarter = true;
+
+	// Einmaliger verzoegerter Sell-Rebuild nach Trade-Erfolg, bis frisch gespawnte Items ihre echte Menge repliziert haben
+	float m_pendingSellRefreshTimer = -1;
 
 	// Batched Build
 	const int BUILD_BATCH_SIZE = 20;
@@ -60,6 +66,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_dnCache = new map<string, string>;
 		m_pendingBuyClassnames = new array<string>;
 		m_pendingBuyQuantities = new array<float>;
+		m_buySelectedQuantities = new map<string, float>;
 
 		if (!m_filterMemory)
 		{
@@ -73,13 +80,61 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_isRotatingTrader = isRotating;
 		m_traderInfo = traderInfo;
 		m_traderData = traderData;
+		m_buySelectedQuantities.Clear();
 		m_dirty = true;
 	}
 
 	void UpdateMetadata(SilverTrader_Data traderData)
 	{
 		m_traderData = traderData;
+		NormalizeBuySelection();
 		m_dirty = true;
+	}
+
+	// Entfernt tote Auswahl-Eintraege und klemmt verbleibende Mengen auf aktuellen Bestand/Max
+	private void NormalizeBuySelection()
+	{
+		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+		if (!pluginTrader)
+		{
+			m_buySelectedQuantities.Clear();
+			m_dirty = true;
+			return;
+		}
+
+		for (int i = m_buySelectedQuantities.Count() - 1; i >= 0; i--)
+		{
+			string classname = m_buySelectedQuantities.GetKey(i);
+			float selectedQuantity = m_buySelectedQuantities.GetElement(i);
+
+			if (!m_traderData || !m_traderData.m_items || !m_traderData.m_items.Contains(classname))
+			{
+				m_buySelectedQuantities.Remove(classname);
+				continue;
+			}
+
+			float stock = m_traderData.m_items.Get(classname);
+			float maxBuy = pluginTrader.CalculateBuyMaxQuantity(m_traderInfo, classname);
+			float normalizedQuantity = Math.Min(selectedQuantity, Math.Min(stock, maxBuy));
+
+			if (normalizedQuantity <= 0)
+				m_buySelectedQuantities.Remove(classname);
+			else
+				m_buySelectedQuantities.Set(classname, normalizedQuantity);
+		}
+	}
+
+	// Leert die Kauf-Auswahl nach einem abgeschlossenen Trade (nicht bei reinem Stock-Sync)
+	void ClearBuySelection()
+	{
+		if (m_buySelectedQuantities)
+			m_buySelectedQuantities.Clear();
+	}
+
+	// Einmaliger verzoegerter Sell-Rebuild, damit frisch gespawnte Items ihre reale Menge zeigen (nicht den Erstellungs-Snapshot)
+	void ScheduleSellRefresh()
+	{
+		m_pendingSellRefreshTimer = 0.25;
 	}
 
 	void CleanupBuyUI()
@@ -347,10 +402,25 @@ class SilverTraderMenu extends UIScriptedMenu
 		actionBtnParam.m_classname = classname;
 		actionBtnParam.m_totalQuantity = quantity;
 		actionBtnParam.m_maxBuyQuantity = Math.Min(pluginTrader.CalculateBuyMaxQuantity(m_traderInfo, classname), quantity);
-		actionBtnParam.m_selectedQuantity = Math.Min(1, actionBtnParam.m_maxBuyQuantity);
 
 		ButtonWidget actionButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("ItemActionButton"));
-		actionButton.SetUserID(2001);
+
+		// Vorherige Auswahl wiederherstellen (uebersteht Filter-Toggle/Rebuild); Map bleibt einzige Quelle der Wahrheit
+		float initialQty;
+		if (m_buySelectedQuantities.Contains(classname))
+		{
+			initialQty = Math.Min(m_buySelectedQuantities.Get(classname), actionBtnParam.m_maxBuyQuantity);
+			m_buySelectedQuantities.Set(classname, initialQty);
+			actionButton.SetUserID(2002);
+			Widget actionButtonBack = actionButton.GetParent();
+			if (actionButtonBack)
+				actionButtonBack.SetColor(ARGB(200, 16, 87, 20));
+		}
+		else
+		{
+			initialQty = Math.Min(1, actionBtnParam.m_maxBuyQuantity);
+			actionButton.SetUserID(2001);
+		}
 
 		// PreviewWidget bleibt leer - wird lazy befüllt
 		string displayName = GetItemDisplayName(classname);
@@ -362,7 +432,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		WidgetTrySetText(itemBuy, "ItemPriceWidget", " ");
 
 		UpdateItemInfoQuantity(itemBuy, pluginTrader, classname, quantity);
-		UpdateItemInfoSelectedQuantity(itemBuy, classname, actionBtnParam.m_selectedQuantity, actionBtnParam.m_maxBuyQuantity);
+		UpdateItemInfoSelectedQuantity(itemBuy, classname, initialQty, actionBtnParam.m_maxBuyQuantity);
 
 		ButtonWidget minusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("MinusActionBtn"));
 		minusButton.SetUserID(3001);
@@ -636,28 +706,9 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void GetSelectedBuyItems(map<string, float> result)
 	{
-		int index;
-		SilverTraderMenu_BuyData buyData;
-		foreach (Widget w : m_buyWidgetsCache)
+		foreach (string classname, float selectedQuantity : m_buySelectedQuantities)
 		{
-			Widget btn = w.FindAnyWidget("ItemActionButton");
-			if (btn.GetUserID() == 2002)
-			{
-				index = w.GetUserID();
-				if (index < 0 || index >= m_buyData.Count())
-					continue;
-				buyData = m_buyData.Get(index);
-				if (!buyData)
-					continue;
-				if (result.Contains(buyData.m_classname))
-				{
-					result.Set(buyData.m_classname, result.Get(buyData.m_classname) + buyData.m_selectedQuantity);
-				}
-				else
-				{
-					result.Insert(buyData.m_classname, buyData.m_selectedQuantity);
-				}
-			}
+			result.Insert(classname, selectedQuantity);
 		}
 	}
 
@@ -731,6 +782,19 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_dirty = false;
 		}
 
+		if (m_pendingSellRefreshTimer > 0)
+		{
+			m_pendingSellRefreshTimer = m_pendingSellRefreshTimer - timeslice;
+
+			if (m_pendingSellRefreshTimer <= 0)
+			{
+				m_pendingSellRefreshTimer = -1;
+
+				if (m_active)
+					m_dirty = true;
+			}
+		}
+
 		StepBuildBuyList();
 		UpdateLazyPreviews();
 
@@ -794,6 +858,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 
 		CleanupUI(); // verschiebt aktive Entities in Pool
+		m_pendingSellRefreshTimer = -1;
 
 		// Widget-Referenzen freigeben
 		m_sellItemsPanel = null;
@@ -802,6 +867,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_progressNegative = null;
 		m_barterBtn = null;
 		m_tradeButtonInfo = null;
+		m_buySelectedQuantities = null;
 
 		PluginSilverTrader traderPlugin = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (traderPlugin)
@@ -921,6 +987,31 @@ class SilverTraderMenu extends UIScriptedMenu
 			btn.SetUserID(2001);
 		}
 
+		// Persistente Auswahl nachfuehren, damit Filter-Toggles/Rebuilds sie nicht verlieren.
+		// Map ist einzige Quelle der Wahrheit - bei bereits vorhandenem Eintrag (z.B. von ChangeBuyQuantity()
+		// unmittelbar zuvor gesetzt) nichts ueberschreiben, nur beim erstmaligen Auswaehlen den Default eintragen.
+		Widget mainWidget = back.GetParent();
+		if (mainWidget)
+		{
+			int index = mainWidget.GetUserID();
+			if (index >= 0 && index < m_buyData.Count())
+			{
+				SilverTraderMenu_BuyData buyData = m_buyData.Get(index);
+				if (buyData)
+				{
+					if (enable)
+					{
+						if (!m_buySelectedQuantities.Contains(buyData.m_classname))
+							m_buySelectedQuantities.Set(buyData.m_classname, Math.Min(1, buyData.m_maxBuyQuantity));
+					}
+					else
+					{
+						m_buySelectedQuantities.Remove(buyData.m_classname);
+					}
+				}
+			}
+		}
+
 		UpdateCurrentPriceProgress();
 	}
 
@@ -982,15 +1073,21 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (!mainParam)
 			return;
 
+		float currentQty;
+		if (m_buySelectedQuantities.Contains(mainParam.m_classname))
+			currentQty = m_buySelectedQuantities.Get(mainParam.m_classname);
+		else
+			currentQty = Math.Min(1, mainParam.m_maxBuyQuantity);
+
 		float stepSize = pluginTrader.CalculateItemSelectedQuantityStep(mainParam.m_classname);
 
 		// Konsistente Step-Logik: im Sub-1-Bereich immer stepSize verwenden
 		float actualStep = 0;
 		if (stepSize < 1)
 		{
-			if (value > 0 && mainParam.m_selectedQuantity < 1)
+			if (value > 0 && currentQty < 1)
 				actualStep = stepSize;
-			else if (value < 0 && mainParam.m_selectedQuantity <= 1)
+			else if (value < 0 && currentQty <= 1)
 				actualStep = stepSize * -1;
 			else if (value > 0)
 				actualStep = 1;
@@ -1002,11 +1099,11 @@ class SilverTraderMenu extends UIScriptedMenu
 			actualStep = value;
 		}
 
-		float newQty = mainParam.m_selectedQuantity + actualStep;
+		float newQty = currentQty + actualStep;
 		newQty = Math.Clamp(newQty, stepSize, mainParam.m_maxBuyQuantity);
-		mainParam.m_selectedQuantity = newQty;
+		m_buySelectedQuantities.Set(mainParam.m_classname, newQty);
 
-		UpdateItemInfoSelectedQuantity(mainWidget, mainParam.m_classname, mainParam.m_selectedQuantity, mainParam.m_maxBuyQuantity);
+		UpdateItemInfoSelectedQuantity(mainWidget, mainParam.m_classname, newQty, mainParam.m_maxBuyQuantity);
 		UpdateCurrentPriceProgress();
 	}
 
@@ -1029,6 +1126,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (sellItems.Count() > 0)
 		{
 			GetSelectedBuyItems(buyItems);
+
+			// DIAGNOSE (temporaer): Client-Menge vor RPC-Versand - unbedingtes Print, da DebugLog() client-seitig m_config braucht
+			foreach (string diagClassname, float diagQty : buyItems)
+				Print("[SilverBarter] Client sende Buy: " + diagClassname + " qty=" + diagQty.ToString());
+
 			pluginTrader.DoBarter(m_traderId, sellItems, buyItems);
 		}
 
@@ -1264,6 +1366,5 @@ class SilverTraderMenu_BuyData
 {
 	string m_classname;
 	float m_totalQuantity;
-	float m_selectedQuantity;
 	float m_maxBuyQuantity;
 };

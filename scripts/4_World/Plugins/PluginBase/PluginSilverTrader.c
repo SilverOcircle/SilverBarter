@@ -360,6 +360,8 @@ class PluginSilverTrader extends PluginBase
 		if (m_traderMenu && m_traderMenu.m_active)
 		{
 			m_traderMenu.UpdateMetadata(newData);
+			m_traderMenu.ClearBuySelection();
+			m_traderMenu.ScheduleSellRefresh();
 		}
 	}
 
@@ -1190,6 +1192,10 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
+		// DIAGNOSE (temporaer): empfangene Buy-Mengen vor der Validierung
+		for (int diagIdx = 0; diagIdx < buyItems.Count(); diagIdx++)
+			DebugLog("Server empfangen Buy: " + buyItems.GetKey(diagIdx) + " qty=" + buyItems.GetElement(diagIdx).ToString());
+
 		DebugLog("Trade: " + sellItems.Count().ToString() + " selling, " + buyItems.Count().ToString() + " buying");
 
 		bool isRotatingTrade = IsRotatingTrader(traderId);
@@ -1378,6 +1384,8 @@ class PluginSilverTrader extends PluginBase
 						if (buyEntity.IsInherited(Ammunition_Base))
 						{
 							buyMagazine.ServerSetAmmoCount((int)Math.Round(buyMagazine.GetAmmoMax() * spawnQuantity01));
+							// DIAGNOSE (temporaer): finaler AmmoCount nach dem Setzen
+							DebugLog("Server nach Spawn: " + buyClassname4 + " spawnQuantity01=" + spawnQuantity01.ToString() + " finalAmmoCount=" + buyMagazine.GetAmmoCount().ToString());
 						}
 						else
 						{
