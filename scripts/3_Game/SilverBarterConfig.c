@@ -159,6 +159,10 @@ class SilverBarterConfig
 		exampleTrader.m_sellFilter.Insert("!bl_improvised_whetstone");
 		exampleTrader.m_sellFilter.Insert("!bl_improvised_sewing_kit");
 		exampleTrader.m_sellFilter.Insert("!Single_Match");
+		exampleTrader.m_sellFilter.Insert("!dzn_snowball_base");
+		exampleTrader.m_sellFilter.Insert("!SeedBase");
+		exampleTrader.m_sellFilter.Insert("!Splint");
+		exampleTrader.m_sellFilter.Insert("!CookZ_EmptyCan");
 
 		exampleTrader.m_attachments = new array<string>;
 		exampleTrader.m_attachments.Insert("DownJacket_Orange");
