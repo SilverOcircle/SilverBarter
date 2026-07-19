@@ -19,6 +19,10 @@ class PluginSilverTrader extends PluginBase
 	// Gueltige Filter-Kategorien (fuer Kategorie-Overrides, verhindert Tippfehler-Ausfaelle)
 	static ref array<string> VALID_CATEGORIES;
 
+	// Tiefenversatz fuer die SilverBarterChest-Staging-Position: muss innerhalb der Network-Bubble
+	// des Kaeufers bleiben (sonst "[syncinv] item not in bubble"), aber unter der Oberflaeche liegen.
+	const float CHEST_STAGING_DEPTH = 2.0;
+
 	// Client-Seite
 	ref SilverTraderMenu m_traderMenu;
 	ref array<string> m_quantityPriceClassnamesClient;
@@ -1241,15 +1245,27 @@ class PluginSilverTrader extends PluginBase
 		map<string, float> sellCounter = new map<string, float>;
 		foreach (ItemBase sellItem1 : sellItems)
 		{
-			if (!sellItem1)
+			if (!sellItem1 || sellItem1.IsPendingDeletion())
+			{
+				DebugLog("Sell rejected: null or pending deletion");
 				continue;
-			if (!IsItemOwnedByPlayer(sellItem1, player))
-				continue;
-			if (!CanSellItem(traderInfo, sellItem1))
-				continue;
+			}
 
 			string sellClass = sellItem1.GetType();
 			float sellQty01 = CalculateItemQuantity01(sellItem1);
+			DebugLog("Sell requested: " + sellClass + " qty01=" + sellQty01.ToString());
+
+			if (!IsItemOwnedByPlayer(sellItem1, player))
+			{
+				DebugLog("Sell rejected: not owned by player - " + sellClass);
+				continue;
+			}
+			if (!CanSellItem(traderInfo, sellItem1))
+			{
+				DebugLog("Sell rejected: CanSellItem false - " + sellClass);
+				continue;
+			}
+
 			float currentSellCount = 0;
 			if (sellCounter.Contains(sellClass))
 				currentSellCount = sellCounter.Get(sellClass);
@@ -1307,6 +1323,8 @@ class PluginSilverTrader extends PluginBase
 			approvedBuyItems.Insert(buyClassname1, approvedQty);
 		}
 
+		DebugLog("Sell requested/validated: " + sellItems.Count().ToString() + "/" + validSellItems.Count().ToString() + " - Buy requested/validated: " + buyItems.Count().ToString() + "/" + approvedBuyItems.Count().ToString());
+
 		// Kein einseitiger Sell wenn alle Buy-Items serverseitig ungueltig waren
 		if (validSellItems.Count() > 0 && approvedBuyItems.Count() == 0)
 		{
@@ -1319,13 +1337,19 @@ class PluginSilverTrader extends PluginBase
 
 		foreach (ItemBase sellItem2 : validSellItems)
 		{
-			resultPrice = resultPrice + CalculateSellPrice(traderInfo, traderData, sellItem2);
+			int sellPrice = CalculateSellPrice(traderInfo, traderData, sellItem2);
+			DebugLog("Sell price: " + sellItem2.GetType() + " price=" + sellPrice.ToString());
+			resultPrice = resultPrice + sellPrice;
 		}
 
 		foreach (string buyClassname2, float buyQuantity2 : approvedBuyItems)
 		{
-			resultPrice = resultPrice - CalculateBuyPrice(traderInfo, traderData, buyClassname2, buyQuantity2);
+			int buyPrice = CalculateBuyPrice(traderInfo, traderData, buyClassname2, buyQuantity2);
+			DebugLog("Buy price: " + buyClassname2 + " qty=" + buyQuantity2.ToString() + " price=" + buyPrice.ToString());
+			resultPrice = resultPrice - buyPrice;
 		}
+
+		DebugLog("Result price: " + resultPrice.ToString());
 
 		if (resultPrice < 0)
 		{
@@ -1334,9 +1358,24 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		// === PHASE 4: Trade ausfuehren ===
-		// Buy-Items zuerst spawnen – erst danach Sell-Items loeschen und Bestand aendern
+		// Kauf-Items werden zunaechst ausschliesslich in eine unerreichbare Staging-Chest gespawnt,
+		// NIEMALS direkt ins Spielerinventar - verhindert, dass ein frisch gekauftes Item in einem
+		// im selben Trade verkauften Container landet und mitgeloescht wird.
+		vector deliveryPosition = player.GetPosition();
+		string buyerUid = sender.GetId();
+
+		// Chest MUSS innerhalb der Network-Bubble des Kaeufers erzeugt werden, sonst wird sie dem
+		// Client nie repliziert und TakeEntityToInventory() schlaegt spaeter mit
+		// "[syncinv] item not in bubble" fehl. Deshalb nur leicht unter der Oberflaeche versetzt.
+		vector chestPos = Vector(deliveryPosition[0], deliveryPosition[1] - CHEST_STAGING_DEPTH, deliveryPosition[2]);
+		SilverBarterChest chest = SilverBarterChest.Cast(g_Game.CreateObjectEx("SilverBarterChest", chestPos, ECE_NONE));
+		if (!chest)
+		{
+			Print("[SilverBarter] ERROR: Could not create staging chest for trade, aborting.");
+			return;
+		}
+
 		bool spawnFailed = false;
-		array<ItemBase> spawnedEntities = new array<ItemBase>;
 		foreach (string buyClassname4, float buyQuantity4 : approvedBuyItems)
 		{
 			if (spawnFailed)
@@ -1353,23 +1392,33 @@ class PluginSilverTrader extends PluginBase
 			{
 				ItemBase buyEntity = null;
 				InventoryLocation invLoc = new InventoryLocation;
-				bool foundInvSlot = player.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname4, FindInventoryLocationType.ANY, invLoc);
+				bool foundInvSlot = chest.GetInventory().FindFirstFreeLocationForNewEntity(buyClassname4, FindInventoryLocationType.ANY, invLoc);
 
 				DebugSpawnInfo(buyClassname4);
 
 				if (foundInvSlot)
 				{
-					buyEntity = ItemBase.Cast(player.GetInventory().LocationCreateEntity(invLoc, buyClassname4, ECE_IN_INVENTORY, RF_DEFAULT));
+					buyEntity = ItemBase.Cast(chest.GetInventory().LocationCreateEntity(invLoc, buyClassname4, ECE_IN_INVENTORY, RF_DEFAULT));
 					DebugLog("LocationCreateEntity result for " + buyClassname4 + ": " + (buyEntity != null).ToString() + " (foundInvSlot=true)");
 				}
 
 				// Fallback fuer Items die ECE_IN_INVENTORY nicht unterstuetzen (z.B. ItemBook-Subklassen)
-				// Item landet ggf. auf dem Boden beim Spieler – das ist akzeptabel
+				// Landet ebenfalls ausschliesslich in der Chest, niemals direkt beim Spieler
 				if (!buyEntity)
 				{
-					buyEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname4, player.GetPosition()));
-					if (buyEntity)
-						player.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, buyEntity);
+					ItemBase fallbackEntity = ItemBase.Cast(g_Game.CreateObject(buyClassname4, chestPos));
+					if (fallbackEntity)
+					{
+						if (chest.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, fallbackEntity))
+						{
+							buyEntity = fallbackEntity;
+						}
+						else
+						{
+							// Darf niemals ausserhalb der Chest-Hierarchie zurueckbleiben
+							g_Game.ObjectDelete(fallbackEntity);
+						}
+					}
 					DebugLog("CreateObject fallback result for " + buyClassname4 + ": " + (buyEntity != null).ToString());
 				}
 
@@ -1401,7 +1450,6 @@ class PluginSilverTrader extends PluginBase
 						buyEntity.SetQuantityNormalized(spawnQuantity01);
 					}
 
-					spawnedEntities.Insert(buyEntity);
 					EntityAI spawnRoot = buyEntity.GetHierarchyRoot();
 					string spawnRootType = "null";
 					if (spawnRoot)
@@ -1422,15 +1470,12 @@ class PluginSilverTrader extends PluginBase
 				break;
 		}
 
-		// Bei Spawn-Fehler: bereits gespawnte Items zurueckloeschen (Rollback)
+		// Bei Spawn-Fehler: nur die Chest loeschen, das loescht ihre komplette Cargo-Hierarchie
+		// (alle bereits gespawnten Kauf-Items) automatisch mit
 		if (spawnFailed)
 		{
 			Print("[SilverBarter] Trade aborted: spawn failure, rolling back for " + sender.GetName());
-			foreach (ItemBase spawnedEntity : spawnedEntities)
-			{
-				if (spawnedEntity && !spawnedEntity.IsPendingDeletion())
-					g_Game.ObjectDelete(spawnedEntity);
-			}
+			g_Game.ObjectDelete(chest);
 		}
 
 		// Pruefen ob tatsaechlich etwas getauscht wurde
@@ -1499,6 +1544,23 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
+		// Chest-Auslieferung: kein sofortiger Zustellversuch direkt nach dem Loeschen der Sell-Items -
+		// FindInventoryLocationType.ANY koennte sonst einen Slot in einem noch nicht vollstaendig
+		// entfernten (aber schon zur Loeschung vorgemerkten) Container waehlen. Stattdessen genau
+		// EIN verzoegerter Zustellversuch per CallLater.
+		if (!spawnFailed)
+		{
+			if (tradeSuccess)
+			{
+				g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.FinishDelivery, 200, false, chest, buyerUid, deliveryPosition, traderId);
+			}
+			else
+			{
+				// Nichts getauscht - Chest wurde erzeugt, blieb aber leer
+				g_Game.ObjectDelete(chest);
+			}
+		}
+
 		// Trader als dirty markieren (nur normale Trader persistent speichern)
 		if (tradeSuccess && !isRotatingTrade)
 		{
@@ -1531,6 +1593,149 @@ class PluginSilverTrader extends PluginBase
 		}
 	}
 
+	// Stufe 1: Chest zum Kaeufer bringen und TakeEntityToInventory() genau einmal pro Item anstossen.
+	// TakeEntityToInventory() ist ein DEFERRED Move (Sync-Move/Juncture-Validierung, siehe DayZPlayerInventory) -
+	// result=true bedeutet nur "angenommen", nicht "bereits umgesetzt". Deshalb hier KEINE Erfolgspruefung
+	// und KEIN Boden-Fallback - beides wuerde parallel zum noch laufenden Move auf demselben Item operieren
+	// und zu Client-/Server-Desyncs fuehren. Verifikation erst in Stufe 2 (VerifyDelivery).
+	void FinishDelivery(SilverBarterChest chest, string buyerUid, vector deliveryPosition, int traderId)
+	{
+		if (!chest || chest.IsPendingDeletion())
+			return;
+
+		PlayerBase buyer = GetPlayerByUid(buyerUid);
+
+		// Chest wurde bereits in Phase 4 nahe deliveryPosition (innerhalb der Bubble) erzeugt -
+		// kein Teleport mehr noetig. Der 200ms-Delay vor diesem Callback gibt der Engine Zeit,
+		// Chest + Items dem Kaeufer-Client zu replizieren, bevor der Inventory-Move angestossen wird.
+		// Bewusstes kleines Restrisiko: die Chest ist als normale replizierte SeaChest fuer dieses
+		// Zeitfenster potenziell sicht-/zugreifbar - keine neue Ownership-Architektur dafuer.
+		if (buyer)
+		{
+			DebugLog("FinishDelivery distance: " + vector.Distance(chest.GetPosition(), buyer.GetPosition()).ToString() + " chestPos=" + chest.GetPosition().ToString() + " buyerPos=" + buyer.GetPosition().ToString());
+
+			CargoBase cargo = chest.GetInventory().GetCargo();
+			if (cargo)
+			{
+				for (int i = cargo.GetItemCount() - 1; i >= 0; i--)
+				{
+					ItemBase item = ItemBase.Cast(cargo.GetItem(i));
+					if (!item)
+						continue;
+
+					bool takeResult = buyer.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, item);
+					DebugLog("FinishDelivery TakeEntityToInventory requested: " + item.GetType() + " result=" + takeResult.ToString());
+				}
+			}
+		}
+
+		g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.VerifyDelivery, 300, false, chest, buyerUid, deliveryPosition, traderId);
+	}
+
+	// Stufe 2: erst hier wird der Ausgang des deferred Moves aus Stufe 1 tatsaechlich ausgewertet.
+	// Nur Items, die nachweislich NICHT beim Kaeufer angekommen sind (noch in der Chest), bekommen
+	// jetzt den Boden-Fallback - nie parallel zum Inventory-Move aus Stufe 1.
+	void VerifyDelivery(SilverBarterChest chest, string buyerUid, vector deliveryPosition, int traderId)
+	{
+		if (!chest || chest.IsPendingDeletion())
+			return;
+
+		PlayerBase buyer = GetPlayerByUid(buyerUid);
+
+		CargoBase cargo = chest.GetInventory().GetCargo();
+		if (cargo)
+		{
+			for (int i = cargo.GetItemCount() - 1; i >= 0; i--)
+			{
+				ItemBase item = ItemBase.Cast(cargo.GetItem(i));
+				if (!item)
+					continue;
+
+				EntityAI parent = item.GetHierarchyParent();
+				string parentType = "null";
+				if (parent)
+					parentType = parent.GetType();
+				EntityAI rootPlayer = item.GetHierarchyRootPlayer();
+				string rootPlayerType = "null";
+				if (rootPlayer)
+					rootPlayerType = rootPlayer.GetType();
+				DebugLog("VerifyDelivery: " + item.GetType() + " parent=" + parentType + " rootPlayer=" + rootPlayerType);
+
+				if (buyer && IsSafelyDelivered(item, buyer))
+					continue;
+				if (IsSafelyOnGround(item, deliveryPosition))
+					continue;
+
+				// Deferred Move aus Stufe 1 nachweislich nicht erfolgreich - erst jetzt Boden-Fallback
+				vector transform[4];
+				Math3D.MatrixIdentity4(transform);
+				transform[3] = deliveryPosition;
+				chest.GetInventory().DropEntityWithTransform(InventoryMode.SERVER, chest, item, transform);
+				// Wenn auch das fehlschlaegt: Item bleibt bewusst in der Chest fuer den Fallback unten
+			}
+		}
+
+		// Erfolgreich verschobene Items sind bereits aus der Cargo verschwunden - GetItemCount()==0 ist
+		// damit das massgebliche Erfolgskriterium, unabhaengig davon ob per Inventory-Move oder Boden-Drop.
+		int remaining = 0;
+		if (cargo)
+			remaining = cargo.GetItemCount();
+
+		DebugLog("VerifyDelivery finished: trader=" + traderId.ToString() + " remaining=" + remaining.ToString());
+
+		if (remaining == 0)
+		{
+			g_Game.ObjectDelete(chest);
+		}
+		else
+		{
+			// Letzter Notfall: Chest niemals mit Inhalt loeschen - stattdessen sichtbar zum Spieler bringen
+			chest.SetPosition(deliveryPosition);
+			Print("[SilverBarter] WARNING: " + remaining.ToString() + " item(s) could not be delivered for trader " + traderId.ToString() + ", chest moved to delivery position instead of deleted.");
+		}
+	}
+
+	private bool IsSafelyDelivered(ItemBase item, PlayerBase buyer)
+	{
+		if (!item || item.IsPendingDeletion())
+			return false;
+		if (item.GetHierarchyRootPlayer() != buyer)
+			return false;
+
+		EntityAI current = item;
+		while (current)
+		{
+			if (current.IsPendingDeletion())
+				return false;
+			current = current.GetHierarchyParent();
+		}
+		return true;
+	}
+
+	private bool IsSafelyOnGround(ItemBase item, vector deliveryPosition)
+	{
+		if (!item || item.IsPendingDeletion())
+			return false;
+		if (item.GetHierarchyParent())
+			return false;
+
+		float distance = vector.Distance(item.GetPosition(), deliveryPosition);
+		return distance <= 3.0;
+	}
+
+	private PlayerBase GetPlayerByUid(string uid)
+	{
+		array<Man> players = new array<Man>;
+		g_Game.GetPlayers(players);
+		foreach (Man man : players)
+		{
+			PlayerBase pb = PlayerBase.Cast(man);
+			if (pb && pb.GetIdentity() && pb.GetIdentity().GetId() == uid)
+				return pb;
+		}
+		return null;
+	}
+
 	void SaveTraderData(int traderId)
 	{
 		SilverTrader_Data traderData;
@@ -1554,10 +1759,7 @@ class PluginSilverTrader extends PluginBase
 			SaveTraderData(traderId);
 		}
 
-		if (m_config && m_config.m_debugMode)
-		{
-			Print("[SilverBarter] " + m_dirtyTraders.Count().ToString() + " trader data saved.");
-		}
+		DebugLog(m_dirtyTraders.Count().ToString() + " trader data saved.");
 
 		m_dirtyTraders.Clear();
 	}
@@ -1580,7 +1782,7 @@ class PluginSilverTrader extends PluginBase
 			m_dirtyTraders.Clear();
 		}
 
-		Print("[SilverBarter] All trader data saved (shutdown).");
+		DebugLog("All trader data saved (shutdown).");
 	}
 
 	private bool IsItemOwnedByPlayer(ItemBase item, PlayerBase player)
@@ -2282,9 +2484,6 @@ class PluginSilverTrader extends PluginBase
 
 	void DebugSpawnInfo(string cn)
 	{
-		if (!m_config || !m_config.m_debugMode)
-			return;
-
 		string p = "";
 		if (g_Game.ConfigIsExisting("CfgVehicles " + cn))
 			p = "CfgVehicles " + cn;
@@ -2295,7 +2494,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (p == "")
 		{
-			Print("[SilverBarter] SPAWN DEBUG: " + cn + " not found in any CfgPath on server");
+			DebugLog("SPAWN DEBUG: " + cn + " not found in any CfgPath on server");
 			return;
 		}
 
@@ -2303,6 +2502,6 @@ class PluginSilverTrader extends PluginBase
 		if (g_Game.ConfigIsExisting(p + " scope"))
 			scope = g_Game.ConfigGetInt(p + " scope");
 
-		Print("[SilverBarter] SPAWN DEBUG: " + cn + " path=" + p + " scope=" + scope.ToString());
+		DebugLog("SPAWN DEBUG: " + cn + " path=" + p + " scope=" + scope.ToString());
 	}
 };

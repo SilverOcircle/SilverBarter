@@ -131,10 +131,13 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_buySelectedQuantities.Clear();
 	}
 
-	// Einmaliger verzoegerter Sell-Rebuild, damit frisch gespawnte Items ihre reale Menge zeigen (nicht den Erstellungs-Snapshot)
+	// Einmaliger verzoegerter Sell-Rebuild, damit frisch gespawnte Items ihre reale Menge zeigen (nicht den Erstellungs-Snapshot).
+	// 0.75s statt frueher 0.25s: die serverseitige Chest-Zustellung (FinishDelivery + VerifyDelivery) kann
+	// bis zu ~500ms dauern (200ms + 300ms zweistufig) - der Refresh muss danach liegen, sonst erfasst er
+	// das Inventar bevor gekaufte Items dort tatsaechlich angekommen sind.
 	void ScheduleSellRefresh()
 	{
-		m_pendingSellRefreshTimer = 0.25;
+		m_pendingSellRefreshTimer = 0.75;
 	}
 
 	void CleanupBuyUI()
@@ -854,7 +857,10 @@ class SilverTraderMenu extends UIScriptedMenu
 			closeRpc.Write(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU);
 			closeRpc.Write(m_traderId);
 			closeRpc.Send(closePlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true);
-			Print("[SilverBarter] Close RPC sent for trader " + m_traderId.ToString());
+
+			PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+			if (pluginTrader)
+				pluginTrader.DebugLog("Close RPC sent for trader " + m_traderId.ToString());
 		}
 
 		CleanupUI(); // verschiebt aktive Entities in Pool
@@ -1126,10 +1132,6 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (sellItems.Count() > 0)
 		{
 			GetSelectedBuyItems(buyItems);
-
-			// DIAGNOSE (temporaer): Client-Menge vor RPC-Versand - unbedingtes Print, da DebugLog() client-seitig m_config braucht
-			foreach (string diagClassname, float diagQty : buyItems)
-				Print("[SilverBarter] Client sende Buy: " + diagClassname + " qty=" + diagQty.ToString());
 
 			pluginTrader.DoBarter(m_traderId, sellItems, buyItems);
 		}

@@ -1,7 +1,7 @@
 class CfgPatches {
 	class SilverBarter {
-		units[] = {"TraderPoint"};
-		requiredAddons[] = {"DZ_Data", "DZ_Scripts"};
+		units[] = {"TraderPoint", "SilverBarterChest"};
+		requiredAddons[] = {"DZ_Data", "DZ_Scripts", "DZ_Gear_Camping"};
 	};
 };
 
@@ -37,6 +37,17 @@ class CfgVehicles
 	{
 		scope = 2;
 		model = "\dz\data\lightpoint.p3d";
+	};
+
+	// Temporaerer serverseitiger Staging-Container fuer Kauf-Items (unsichtbar - nur zur Laufzeit an unerreichbarer Position)
+	class SeaChest;
+	class SilverBarterChest: SeaChest
+	{
+		scope = 1;
+		class Cargo
+		{
+			itemsCargoSize[] = {10, 100};
+		};
 	};
 
 	// BaseBuilding
