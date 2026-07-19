@@ -10,6 +10,7 @@ class SilverBarterConfig
 
 	// Globale Einstellungen
 	bool m_debugMode;
+	bool m_zenSkillsXPEnabled;
 	ref array<string> m_quantityPriceClassnames;
 	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers;
 
@@ -75,6 +76,7 @@ class SilverBarterConfig
 	void SetDefaultValues()
 	{
 		m_debugMode = false;
+		m_zenSkillsXPEnabled = true;
 		m_traders = new array<ref SilverTrader_ServerConfig>;
 		SetDefaultCategoryValueMultipliers();
 

@@ -1334,12 +1334,14 @@ class PluginSilverTrader extends PluginBase
 
 		// === PHASE 3: Preis nur fuer validierte Items berechnen ===
 		int resultPrice = 0;
+		int totalSellValue = 0;
 
 		foreach (ItemBase sellItem2 : validSellItems)
 		{
 			int sellPrice = CalculateSellPrice(traderInfo, traderData, sellItem2);
 			DebugLog("Sell price: " + sellItem2.GetType() + " price=" + sellPrice.ToString());
 			resultPrice = resultPrice + sellPrice;
+			totalSellValue = totalSellValue + sellPrice;
 		}
 
 		foreach (string buyClassname2, float buyQuantity2 : approvedBuyItems)
@@ -1543,6 +1545,16 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 		}
+
+		#ifdef ZenSkills
+		if (tradeSuccess && totalSellValue > 0 && player && GetSilverBarterConfig().m_zenSkillsXPEnabled)
+		{
+			int earnedEXP = Math.Min(Math.Floor(totalSellValue / 100.0), 25);
+
+			if (earnedEXP > 0)
+				player.AddZenSkillEXP("gathering", earnedEXP);
+		}
+		#endif
 
 		// Chest-Auslieferung: kein sofortiger Zustellversuch direkt nach dem Loeschen der Sell-Items -
 		// FindInventoryLocationType.ANY koennte sonst einen Slot in einem noch nicht vollstaendig
