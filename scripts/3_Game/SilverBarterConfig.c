@@ -522,6 +522,34 @@ class SilverTrader_Info
 		// Fallback auf Standard-Commission
 		return m_storageCommission;
 	}
+
+	// Grenzen pruefen und Config-Werte normalisieren. Liefert false, wenn der Trader verworfen werden muss.
+	bool ValidateAndNormalize()
+	{
+		if (m_traderId < 0)
+			return false;
+
+		if (m_storageMaxSize <= 0)
+			m_storageMaxSize = 5000;
+
+		m_storageCommission = Math.Clamp(m_storageCommission, 0, 1);
+		m_sellMaxQuantityPercent = Math.Clamp(m_sellMaxQuantityPercent, 0.01, 1);
+		m_buyMaxQuantityPercent = Math.Clamp(m_buyMaxQuantityPercent, 0.01, 1);
+		m_dumpingByAmountModifier = Math.Clamp(m_dumpingByAmountModifier, 0, 1);
+		m_dumpingByBadQuality = Math.Clamp(m_dumpingByBadQuality, 0, 1);
+
+		if (m_commissionOverrides)
+		{
+			foreach (SilverCommissionOverride commissionOverride : m_commissionOverrides)
+			{
+				if (!commissionOverride)
+					continue;
+				commissionOverride.commission = Math.Clamp(commissionOverride.commission, 0, 1);
+			}
+		}
+
+		return true;
+	}
 };
 
 // Commission-Override Eintrag (fuer Item-spezifische Commission)
@@ -560,6 +588,22 @@ class SilverRotatingTrader_Config : SilverTrader_Info
 	string m_zenMapMarkerName;                            // Name des Markers auf der Karte
 	string m_zenMapMarkerIcon;                            // Icon-Pfad (leer = Standard)
 
+	override bool ValidateAndNormalize()
+	{
+		if (!super.ValidateAndNormalize())
+			return false;
+
+		if (m_classname == "")
+			return false;
+
+		if (m_rotationIntervalMinutes <= 0)
+			m_rotationIntervalMinutes = 60;
+
+		if (m_activeSlots <= 0)
+			m_activeSlots = 5;
+
+		return true;
+	}
 };
 
 // Server-spezifische Trader-Config (erweitert Info um Spawn-Daten)
@@ -571,6 +615,16 @@ class SilverTrader_ServerConfig : SilverTrader_Info
 	ref array<ref SilverTrader_LimitedItem> m_limitedItems; // Bei Restart auf fixen Wert setzen
 	float m_orientation;
 
+	override bool ValidateAndNormalize()
+	{
+		if (!super.ValidateAndNormalize())
+			return false;
+
+		if (m_classname == "")
+			return false;
+
+		return true;
+	}
 };
 
 // Separate Config fuer rotierende Haendler

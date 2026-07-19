@@ -153,6 +153,13 @@ class PluginSilverTrader extends PluginBase
 		}
 	}
 
+	// Wird von SilverTraderMenu.OnHide() aufgerufen, um die Plugin-Referenz freizugeben
+	void ClearTraderMenuRef(SilverTraderMenu menu)
+	{
+		if (m_traderMenu == menu)
+			m_traderMenu = null;
+	}
+
 	// Client: RPC empfangen - Menu oeffnen
 	void RpcRequestOpen(ParamsReadContext ctx, PlayerIdentity sender)
 	{
@@ -375,18 +382,42 @@ class PluginSilverTrader extends PluginBase
 			MakeDirectory(DATA_FOLDER);
 		}
 
+		set<int> seenIds = new set<int>;
+
 		foreach (SilverTrader_ServerConfig trader : m_config.m_traders)
 		{
+			if (!trader || !trader.ValidateAndNormalize())
+			{
+				Print("[SilverBarter] ERROR: Trader config invalid, skipped.");
+				continue;
+			}
+			if (seenIds.Find(trader.m_traderId) != -1)
+			{
+				Print("[SilverBarter] ERROR: Duplicate trader ID skipped: " + trader.m_traderId.ToString());
+				continue;
+			}
+			seenIds.Insert(trader.m_traderId);
 			SpawnTrader(trader);
 		}
 
 		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
 
-		// Rotierende Haendler initialisieren
+		// Rotierende Haendler initialisieren (gleiche seenIds - Trader-IDs sind global eindeutig)
 		if (m_rotatingConfig && m_rotatingConfig.m_rotatingTraders && m_rotatingConfig.m_rotatingTraders.Count() > 0)
 		{
 			foreach (SilverRotatingTrader_Config rotTrader : m_rotatingConfig.m_rotatingTraders)
 			{
+				if (!rotTrader || !rotTrader.ValidateAndNormalize())
+				{
+					Print("[SilverBarter] ERROR: Rotating trader config invalid, skipped.");
+					continue;
+				}
+				if (seenIds.Find(rotTrader.m_traderId) != -1)
+				{
+					Print("[SilverBarter] ERROR: Duplicate trader ID skipped: " + rotTrader.m_traderId.ToString());
+					continue;
+				}
+				seenIds.Insert(rotTrader.m_traderId);
 				SpawnRotatingTrader(rotTrader);
 			}
 			DebugLog(m_rotatingConfig.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
@@ -511,6 +542,12 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
+		if (m_rotatingTraderCache.Contains(trader.m_traderId))
+		{
+			Print("[SilverBarter] ERROR: Duplicate rotating trader ID, skipped: " + trader.m_traderId.ToString());
+			return;
+		}
+
 		if (!trader.m_spawnPositions || trader.m_spawnPositions.Count() == 0)
 		{
 			Print("[SilverBarter] ERROR: Rotating trader has no positions configured.");
@@ -524,10 +561,9 @@ class PluginSilverTrader extends PluginBase
 
 		DebugLog("Rotating Trader " + trader.m_traderId.ToString() + " spawns at position index " + posIndex.ToString());
 
-		// Runtime-Daten erstellen und erste Rotation durchfuehren
+		// Runtime-Daten lokal erstellen (noch nicht in Maps eintragen)
 		SilverTrader_Data traderData = new SilverTrader_Data();
 		RotateTraderPool(trader, traderData);
-		m_rotatingTraderData.Insert(trader.m_traderId, traderData);
 
 		// NPC spawnen
 		Object traderObj = g_Game.CreateObject(trader.m_classname, spawnPos);
@@ -553,14 +589,20 @@ class PluginSilverTrader extends PluginBase
 
 		// TraderPoint erstellen
 		TraderPoint traderPoint = TraderPoint.Cast(g_Game.CreateObject("TraderPoint", spawnPos));
-		if (traderPoint)
+		if (!traderPoint)
 		{
-			traderPoint.SetAllowDamage(false);
-			traderPoint.SetPosition(spawnPos);
-			traderPoint.SetOrientation(Vector(trader.m_orientation, 0, 0));
-			traderPoint.InitTraderPoint(trader.m_traderId, traderObj, true);
+			Print("[SilverBarter] ERROR: TraderPoint creation failed for rotating trader " + trader.m_traderId.ToString() + " - cleaning up NPC.");
+			g_Game.ObjectDelete(traderObj);
+			return;
 		}
 
+		traderPoint.SetAllowDamage(false);
+		traderPoint.SetPosition(spawnPos);
+		traderPoint.SetOrientation(Vector(trader.m_orientation, 0, 0));
+		traderPoint.InitTraderPoint(trader.m_traderId, traderObj, true);
+
+		// Erst nach erfolgreichem NPC- und TraderPoint-Spawn in alle Maps eintragen
+		m_rotatingTraderData.Insert(trader.m_traderId, traderData);
 		m_rotatingTraderPoints.Insert(trader.m_traderId, traderPoint);
 		m_rotatingTraderCache.Insert(trader.m_traderId, trader);
 		m_rotationTimers.Insert(trader.m_traderId, 0);

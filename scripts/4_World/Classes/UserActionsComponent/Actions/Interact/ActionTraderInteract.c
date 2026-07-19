@@ -1,6 +1,8 @@
 // SilverBarter Trader-Interaktions-Action
 class ActionTraderInteract: ActionInteractBase
 {
+	protected ref array<Object> m_foundObjects;
+
 	void ActionTraderInteract()
 	{
 		m_CommandUID = DayZPlayerConstants.CMD_ACTIONMOD_INTERACTONCE;
@@ -44,20 +46,23 @@ class ActionTraderInteract: ActionInteractBase
 	// TraderPoint in der Naehe finden
 	TraderPoint FindTraderPoint(vector pos)
 	{
-		TraderPoint result = null;
-		array<Object> objects = new array<Object>;
-		g_Game.GetObjectsAtPosition3D(pos, 0.1, objects, null);
+		if (!m_foundObjects)
+			m_foundObjects = new array<Object>;
+		else
+			m_foundObjects.Clear();
 
-		foreach (Object obj : objects)
+		g_Game.GetObjectsAtPosition3D(pos, 0.1, m_foundObjects, null);
+
+		TraderPoint result = null;
+		foreach (Object obj : m_foundObjects)
 		{
-			if (obj.IsInherited(TraderPoint))
+			if (obj && obj.IsInherited(TraderPoint))
 			{
 				result = TraderPoint.Cast(obj);
 				break;
 			}
 		}
 
-		delete objects;
 		return result;
 	}
 

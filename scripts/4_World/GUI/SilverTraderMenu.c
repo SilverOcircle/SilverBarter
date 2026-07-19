@@ -795,6 +795,18 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		CleanupUI(); // verschiebt aktive Entities in Pool
 
+		// Widget-Referenzen freigeben
+		m_sellItemsPanel = null;
+		m_buyItemsPanel = null;
+		m_progressPositive = null;
+		m_progressNegative = null;
+		m_barterBtn = null;
+		m_tradeButtonInfo = null;
+
+		PluginSilverTrader traderPlugin = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
+		if (traderPlugin)
+			traderPlugin.ClearTraderMenuRef(this);
+
 		// Pool-Entities jetzt final löschen
 		if (m_previewPool)
 		{
