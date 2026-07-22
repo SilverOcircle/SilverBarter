@@ -825,8 +825,8 @@ FrameWidgetClass rootFrame {
       MultilineTextWidgetClass TradeButtonInfo {
        ignorepointer 1
        color 0.898 0.3216 0.3216 1
-       position -20 8
-       size 380 44
+       position -60 8
+       size 440 44
        halign right_ref
        hexactpos 1
        vexactpos 1
@@ -837,7 +837,7 @@ FrameWidgetClass rootFrame {
        "exact text size" 15
        "size to text h" 0
        "size to text v" 0
-       "text halign" right
+       "text halign" left
        "text valign" center
        wrap 1
        "condense whitespace" 1
