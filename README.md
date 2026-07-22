@@ -32,6 +32,7 @@ That's why I took it upon myself to bring it back, making it as stable and robus
 - [Category Overrides](#category-overrides)
 - [Category Value Multipliers](#category-value-multipliers)
 - [ZenMap Integration](#zenmap-integration)
+- [ZenSkills Integration](#zenskills-integration)
 - [Troubleshooting](#troubleshooting)
 - [Support the Project](#support-the-project)
 
@@ -86,6 +87,20 @@ Trader inventories are saved to `$profile:\SilverBarter\TraderData\trader_X.json
 - Auto-save every 5 minutes
 - Save on server shutdown
 - Limited items reset to `maxQuantity` on every server restart
+
+### Purchase Delivery (Staging Chest)
+
+Bought items are not spawned directly into the player's inventory. To avoid a race condition where purchased items could vanish if they land inside a container the player sold in the same trade, the server first spawns purchased items into a hidden, unreachable staging entity (`SilverBarterChest`) placed slightly below the player, then moves them into the player's inventory in a short two-step deferred process (roughly half a second total) after the sold items have been removed. If an item still fails to reach the inventory (e.g. it's full), it is dropped on the ground near the player as a fallback instead of being lost.
+
+This is fully automatic and requires no configuration. If you see `SilverBarterChest` entities in server logs or admin tools, this is expected — they are destroyed immediately after delivery completes.
+
+### Buy Selection Persistence
+
+The quantities a player selects to buy are remembered while the trader menu is open, even when switching category filters or when the item list rebuilds (e.g. after a stock sync). The selection is cleared automatically once a trade completes or the menu is closed.
+
+### Trader Menu UI (Experimental Redesign)
+
+A reworked, more modern trader menu layout (SDF fonts, a single centered window panel, a search box) exists under `layout/test/` alongside the original `layout/` files. It is currently switched on by a debug flag (`DEBUG_USE_TEST_LAYOUT` in `SilverTraderMenu.c`) and **has not yet been verified in-game**. Set that flag to `false` to fall back to the original, verified layout if you run into UI issues.
 
 ---
 
@@ -178,6 +193,7 @@ Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `m_debugMode` | bool | false | Enable verbose logging to RPT file. Useful for troubleshooting. Disable in production to reduce log spam. |
+| `m_zenSkillsXPEnabled` | bool | true | Grant ZenSkills "gathering" XP for successful trades. Only has an effect if the mod is compiled with the `ZenSkills` preprocessor define (i.e. the ZenSkills mod is installed) - otherwise ignored. See [ZenSkills Integration](#zenskills-integration). |
 | `m_quantityPriceClassnames` | array | [] | List of item classnames whose sell price is scaled by their current fill level (quantity ratio). Useful for stackable or refillable items where a half-full item should sell for less than a full one. |
 | `m_categoryValueMultipliers` | array | (see below) | Per-category price multiplier applied to `BuyPrice` (and therefore `SellPrice`). Lets whole categories be worth more or less without per-item price lists. See [Category Value Multipliers](#category-value-multipliers). |
 
@@ -619,6 +635,26 @@ If ZenMap is not installed, these fields are simply ignored.
 
 ---
 
+## ZenSkills Integration
+
+SilverBarter optionally grants **ZenSkills** "gathering" XP to players for successfully selling items to a trader. This requires the **ZenSkills** mod to be installed - the integration is compiled in only when the `ZenSkills` preprocessor define is available, so it has zero effect (and zero overhead) otherwise.
+
+### Configuration
+
+Controlled by the global `m_zenSkillsXPEnabled` field (see [Configuration Reference](#configuration-reference)). Set to `false` to disable XP gains without removing ZenSkills itself.
+
+### How it works
+
+```
+earnedEXP = Min( Floor(totalSellValue / 100), 25 )
+```
+
+- `totalSellValue` is the sum of the sell prices of all items sold in that single trade (see [Price Calculation](#price-calculation))
+- XP is awarded only on a successful trade, and only if the resulting amount is greater than 0
+- Capped at 25 XP per trade, regardless of how much value was sold
+
+---
+
 ## File Structure
 
 ```
@@ -637,7 +673,8 @@ SilverBarter/
 │   │   │   ├── ManBase/
 │   │   │   │   └── PlayerBase.c     # Player class extension
 │   │   │   └── Trading/
-│   │   │       └── TraderPoint.c    # Invisible interaction trigger
+│   │   │       ├── TraderPoint.c        # Invisible interaction trigger
+│   │   │       └── SilverBarterChest.c  # Hidden staging container for purchase delivery
 │   │   ├── GUI/
 │   │   │   └── SilverTraderMenu.c   # Trading UI
 │   │   ├── Plugins/
@@ -708,16 +745,19 @@ All operations are logged with `[SilverBarter]` prefix. Check your server logs f
 - `Trade abgelehnt: Negativer Preis` - Player tried to buy more than they can afford
 - `Trade abgelehnt: Verkauf ohne Gegenkauf` - Player tried to sell without buying anything
 - `ERROR: Config nicht geladen` - Configuration file missing or invalid
+- `ERROR: Trader config invalid, skipped.` - A trader entry failed validation (e.g. empty `m_classname` or negative `m_traderId`) and was not spawned
+- `ERROR: Duplicate trader ID skipped: X` - Two traders (standard and/or rotating) share `m_traderId` X; only the first one encountered is spawned. Trader IDs must be unique across **both** config files
 
 ### Common Issues
 
 | Issue | Solution |
 |-------|----------|
-| Trader doesn't spawn | Check `m_position` coordinates and `m_classname` validity |
+| Trader doesn't spawn | Check `m_position` coordinates and `m_classname` validity, and check logs for the validation errors above |
 | Can't sell item | Check `m_sellFilter` - item may be excluded |
 | Can't buy item | Check `m_buyFilter` and verify trader has stock |
 | Prices seem wrong | Adjust `m_dumpingByAmountModifier` and `m_storageCommission` |
 | Stock resets unexpectedly | Check `m_limitedItems` - may be configured to reset |
+| No ZenSkills XP after selling | Verify the ZenSkills mod is installed and loaded, and that `m_zenSkillsXPEnabled` is `true` |
 
 ---
 
