@@ -41,6 +41,8 @@ class SilverTraderMenu extends UIScriptedMenu
 	string m_sellSearchText = "";
 	// Debounce fuer Sell-Suche - rekursiver Inventar-Rebuild ist teurer als der Buy-Rebuild
 	float m_pendingSellSearchTimer = -1;
+	// Debounce fuer Buy-Suche - vermeidet Sort() ueber m_traderData.m_items bei jedem Tastendruck
+	float m_pendingBuySearchTimer = -1;
 
 	// Persistente Kauf-Auswahl (Classname -> gewaehlte Menge), uebersteht Filter-Toggles und Rebuilds
 	ref map<string, float> m_buySelectedQuantities;
@@ -870,6 +872,22 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 		}
 
+		if (m_pendingBuySearchTimer > 0)
+		{
+			m_pendingBuySearchTimer = m_pendingBuySearchTimer - timeslice;
+
+			if (m_pendingBuySearchTimer <= 0)
+			{
+				m_pendingBuySearchTimer = -1;
+
+				if (m_active)
+				{
+					InitInventoryBuy();
+					UpdateCurrentPriceProgress();
+				}
+			}
+		}
+
 		StepBuildBuyList();
 		UpdateLazyPreviews();
 
@@ -956,6 +974,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_buySearchText = "";
 		m_sellSearchText = "";
 		m_pendingSellSearchTimer = -1;
+		m_pendingBuySearchTimer = -1;
 
 		PluginSilverTrader traderPlugin = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (traderPlugin)
@@ -1243,8 +1262,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (w == m_buySearchBox)
 		{
 			m_buySearchText = ReadSearchText(EditBoxWidget.Cast(w));
-			InitInventoryBuy();
-			UpdateCurrentPriceProgress();
+			m_pendingBuySearchTimer = 0.15;
 			return true;
 		}
 

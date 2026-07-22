@@ -43,7 +43,7 @@ FrameWidgetClass rootFrame {
      hexactsize 0
      vexactsize 1
      color 0.9412 0.9412 0.9294 1
-     text "SilverBarter"
+     text "TAUSCHMENÜ"
      font "gui/fonts/sdf_MetronLight72"
      "exact text" 1
      "exact text size" 26
@@ -825,9 +825,9 @@ FrameWidgetClass rootFrame {
       MultilineTextWidgetClass TradeButtonInfo {
        ignorepointer 1
        color 0.898 0.3216 0.3216 1
-       position -60 8
-       size 440 44
-       halign right_ref
+       position 926 8
+       size 480 44
+       halign left_ref
        hexactpos 1
        vexactpos 1
        hexactsize 1
