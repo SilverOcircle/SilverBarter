@@ -6,6 +6,14 @@ class SilverTraderMenu extends UIScriptedMenu
 	const float PROGRESS_BAR_PRICE_DIVIDER = 25;
 	const int PREVIEW_POOL_CAP = 100;
 
+	// TradeButton-Farbe wird per Script gesetzt statt dem Style-Disabled-Zustand ueberlassen -
+	// DayZDefaultButtonAll zeigt den explizit gesetzten "color"-Wert unabhaengig vom Enable()-Zustand an
+	const int TRADE_BUTTON_COLOR_ENABLED = 0xFF1E6A25;
+	const int TRADE_BUTTON_COLOR_DISABLED = 0xFF3C3C3C;
+
+	// Test-Layout unter layout/test/ statt der normalen Layouts laden - vor Release wieder auf false
+	const bool DEBUG_USE_TEST_LAYOUT = true;
+
 	bool m_active = false;
 	bool m_dirty = false;
 
@@ -26,6 +34,13 @@ class SilverTraderMenu extends UIScriptedMenu
 	ref array<ref Widget> m_sellWidgetsCache;
 	ref array<ref Widget> m_buyWidgetsCache;
 	ref array<ref SilverTraderMenu_BuyData> m_buyData;
+
+	ref EditBoxWidget m_buySearchBox;
+	ref EditBoxWidget m_sellSearchBox;
+	string m_buySearchText = "";
+	string m_sellSearchText = "";
+	// Debounce fuer Sell-Suche - rekursiver Inventar-Rebuild ist teurer als der Buy-Rebuild
+	float m_pendingSellSearchTimer = -1;
 
 	// Persistente Kauf-Auswahl (Classname -> gewaehlte Menge), uebersteht Filter-Toggles und Rebuilds
 	ref map<string, float> m_buySelectedQuantities;
@@ -181,10 +196,8 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 	}
 
-	void CleanupUI()
+	void CleanupSellUI()
 	{
-		CleanupBuyUI();
-
 		if (m_sellWidgetsCache)
 		{
 			foreach (Widget w1 : m_sellWidgetsCache)
@@ -193,6 +206,12 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 			m_sellWidgetsCache.Clear();
 		}
+	}
+
+	void CleanupUI()
+	{
+		CleanupBuyUI();
+		CleanupSellUI();
 	}
 
 	void InitInventorySell()
@@ -207,7 +226,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		int nextItemIndex = -1;
 		ItemBase item = ItemBase.Cast(player.GetItemInHands());
-		if (item)
+		if (item && MatchesSellSearch(item))
 		{
 			nextItemIndex = InitItemSell(nextItemIndex + 1, 0, item, pluginTrader);
 		}
@@ -215,11 +234,23 @@ class SilverTraderMenu extends UIScriptedMenu
 		for (int i = 0; i < player.GetInventory().GetAttachmentSlotsCount(); ++i)
 		{
 			item = ItemBase.Cast(player.GetInventory().FindAttachment(player.GetInventory().GetAttachmentSlotId(i)));
-			if (item)
+			if (item && MatchesSellSearch(item))
 			{
 				nextItemIndex = InitItemSell(nextItemIndex + 1, 0, item, pluginTrader);
 			}
 		}
+	}
+
+	// Suchfilter gilt nur fuer oberste Ebene (angezogene Items/Item-in-Hand) - passt ein Item nicht,
+	// verschwindet es inkl. seines gesamten Unterinventars (Attachments/Cargo), keine rekursive Tiefensuche
+	private bool MatchesSellSearch(ItemBase item)
+	{
+		if (m_sellSearchText == "")
+			return true;
+
+		string dn = item.GetDisplayName();
+		dn.ToLower();
+		return dn.IndexOf(m_sellSearchText) != -1;
 	}
 
 	int InitItemSell(int index, int depth, ItemBase item, PluginSilverTrader pluginTrader)
@@ -229,7 +260,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		GetScreenSize(screenWidth, screenHeight);
 
 		Widget itemSell;
-		if (screenHeight > 1440)
+		if (DEBUG_USE_TEST_LAYOUT)
+		{
+			itemSell = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/test/TraderMenuItemSell.layout");
+		}
+		else if (screenHeight > 1440)
 		{
 			itemSell = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemSell.layout");
 		}
@@ -319,6 +354,10 @@ class SilverTraderMenu extends UIScriptedMenu
 
 			string dn = GetItemDisplayName(cn);
 			dn.ToLower();
+
+			if (m_buySearchText != "" && dn.IndexOf(m_buySearchText) == -1)
+				continue;
+
 			string key = dn + "|" + cn;
 			sortKeys.Insert(key);
 			keyToClass.Insert(key, cn);
@@ -378,7 +417,11 @@ class SilverTraderMenu extends UIScriptedMenu
 	int InitItemBuy(int index, string classname, float quantity, PluginSilverTrader pluginTrader)
 	{
 		Widget itemBuy;
-		if (m_cachedScreenHeight > 1440)
+		if (DEBUG_USE_TEST_LAYOUT)
+		{
+			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/test/TraderMenuItemBuy.layout");
+		}
+		else if (m_cachedScreenHeight > 1440)
 		{
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemBuy.layout");
 		}
@@ -650,18 +693,21 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_progressPositive.SetCurrent(Math.Min(100, value));
 			m_progressNegative.SetCurrent(0);
 			m_barterBtn.Enable(true);
+			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_ENABLED);
 		}
 		else if (value < 0)
 		{
 			m_progressPositive.SetCurrent(0);
 			m_progressNegative.SetCurrent(Math.Min(100, value * -1));
 			m_barterBtn.Enable(false);
+			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_DISABLED);
 		}
 		else
 		{
 			m_progressPositive.SetCurrent(0);
 			m_progressNegative.SetCurrent(0);
 			m_barterBtn.Enable(true);
+			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_ENABLED);
 		}
 
 		if (blockedItemsCounter > 0)
@@ -684,6 +730,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (m_blockBarter)
 		{
 			m_barterBtn.Enable(false);
+			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_DISABLED);
 		}
 
 		delete sellCounter;
@@ -738,7 +785,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		int screenHeight;
 		GetScreenSize(screenWidth, screenHeight);
 
-		if (screenHeight > 1440)
+		if (DEBUG_USE_TEST_LAYOUT)
+		{
+			layoutRoot = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/test/TraderMenu.layout");
+		}
+		else if (screenHeight > 1440)
 		{
 			layoutRoot = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenu.layout");
 		}
@@ -753,6 +804,10 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_progressNegative = SimpleProgressBarWidget.Cast(layoutRoot.FindAnyWidget("ProgressNegative"));
 		m_barterBtn = ButtonWidget.Cast(layoutRoot.FindAnyWidget("TradeButton"));
 		m_tradeButtonInfo = MultilineTextWidget.Cast(layoutRoot.FindAnyWidget("TradeButtonInfo"));
+
+		// Nur im Test-Layout vorhanden - bleibt null im alten Layout, Aufrufer pruefen darauf
+		m_buySearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("BuySearchBox"));
+		m_sellSearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("SellSearchBox"));
 
 		m_filterData.Clear();
 		InitializeFilter(layoutRoot, "weapons");
@@ -798,6 +853,23 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 		}
 
+		if (m_pendingSellSearchTimer > 0)
+		{
+			m_pendingSellSearchTimer = m_pendingSellSearchTimer - timeslice;
+
+			if (m_pendingSellSearchTimer <= 0)
+			{
+				m_pendingSellSearchTimer = -1;
+
+				if (m_active)
+				{
+					CleanupSellUI();
+					InitInventorySell();
+					UpdateCurrentPriceProgress();
+				}
+			}
+		}
+
 		StepBuildBuyList();
 		UpdateLazyPreviews();
 
@@ -819,7 +891,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			// Focus wiederherstellen nach Alt+Tab
 			g_Game.GetInput().ChangeGameFocus(1);
-			SetFocus(layoutRoot);
+
+			// SetFocus(layoutRoot) nicht jeden Frame erzwingen - sonst reisst es den Fokus
+			// aus einem aktiven Suchfeld (EditBoxWidget) heraus und Tippen ist unmoeglich
+			if (!GetFocus())
+				SetFocus(layoutRoot);
 		}
 	}
 
@@ -874,6 +950,12 @@ class SilverTraderMenu extends UIScriptedMenu
 		m_barterBtn = null;
 		m_tradeButtonInfo = null;
 		m_buySelectedQuantities = null;
+
+		m_buySearchBox = null;
+		m_sellSearchBox = null;
+		m_buySearchText = "";
+		m_sellSearchText = "";
+		m_pendingSellSearchTimer = -1;
 
 		PluginSilverTrader traderPlugin = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (traderPlugin)
@@ -1138,6 +1220,42 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		delete sellItems;
 		delete buyItems;
+	}
+
+	private string ReadSearchText(EditBoxWidget box)
+	{
+		string text = box.GetText();
+
+		// "Use default text"-Verhalten von GetText() beim Placeholder ist nicht verifiziert - API pruefen.
+		// Defensiv: literalen Placeholder-Text wie leeren String behandeln.
+		if (text == "Suchen...")
+			text = "";
+
+		text.TrimInPlace();
+		text.ToLower();
+		return text;
+	}
+
+	override bool OnChange(Widget w, int x, int y, bool finished)
+	{
+		super.OnChange(w, x, y, finished);
+
+		if (w == m_buySearchBox)
+		{
+			m_buySearchText = ReadSearchText(EditBoxWidget.Cast(w));
+			InitInventoryBuy();
+			UpdateCurrentPriceProgress();
+			return true;
+		}
+
+		if (w == m_sellSearchBox)
+		{
+			m_sellSearchText = ReadSearchText(EditBoxWidget.Cast(w));
+			m_pendingSellSearchTimer = 0.25;
+			return true;
+		}
+
+		return false;
 	}
 
 	override bool OnClick(Widget w, int x, int y, int button)
