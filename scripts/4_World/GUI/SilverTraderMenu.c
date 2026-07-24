@@ -148,11 +148,13 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_buySelectedQuantities.Clear();
 	}
 
-	// Einmaliger verzoegerter Sell-Rebuild nach dem maximalen Delivery-Polling.
-	// So erfasst die Liste auch Kaufitems, deren serverseitiger Inventory-Move mehrere Sekunden benoetigt.
+	// Ausgeloest durch SILVERRPC_DELIVERY_COMPLETE, sobald die serverseitige Zustellung abgeschlossen ist.
+	// Kein geratener Zustell-Timer mehr: die 200ms sind nur ein kleiner Client-Sync-Puffer, damit die
+	// per Entity-Replikation ankommende Inventaraenderung vor dem Rebuild sicher verarbeitet ist (RPC und
+	// Replikation laufen ueber getrennte Kanaele ohne garantierte Reihenfolge).
 	void ScheduleSellRefresh()
 	{
-		m_pendingSellRefreshTimer = 6.5;
+		m_pendingSellRefreshTimer = 0.2;
 	}
 
 	void CleanupBuyUI()

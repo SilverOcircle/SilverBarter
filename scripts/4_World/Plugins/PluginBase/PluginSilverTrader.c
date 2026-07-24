@@ -129,6 +129,7 @@ class PluginSilverTrader extends PluginBase
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ACTION_TRADER, this, "RpcHandleTraderAction");
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU, this, "RpcRequestTraderMenuClose");
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_ROTATING_TRADER_SYNC, this, "RpcRotatingTraderSync");
+		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_DELIVERY_COMPLETE, this, "RpcHandleDeliveryComplete");
 
 		// Server-Initialisierung
 		if (g_Game.IsServer())
@@ -368,8 +369,22 @@ class PluginSilverTrader extends PluginBase
 		{
 			m_traderMenu.UpdateMetadata(newData);
 			m_traderMenu.ClearBuySelection();
-			m_traderMenu.ScheduleSellRefresh();
+			// Sell-Refresh haengt NICHT mehr an dieser fruehen Trade-Antwort, sondern am
+			// spaeteren SILVERRPC_DELIVERY_COMPLETE - erst dann sind die Kauf-Items zugestellt.
 		}
+	}
+
+	// Client: RPC empfangen - serielle Zustellung serverseitig abgeschlossen.
+	// Kein sofortiger Rebuild: RPC und Inventar-Replikation laufen ueber getrennte Kanaele, deren
+	// clientseitige Verarbeitungsreihenfolge nicht garantiert ist. Deshalb nur "dirty" markieren und
+	// mit kleinem Sync-Puffer refreshen (siehe ScheduleSellRefresh).
+	void RpcHandleDeliveryComplete(ParamsReadContext ctx, PlayerIdentity sender)
+	{
+		if (g_Game.IsServer())
+			return;
+
+		if (m_traderMenu && m_traderMenu.m_active)
+			m_traderMenu.ScheduleSellRefresh();
 	}
 
 	// ========== SERVER-SEITE ==========
@@ -1642,7 +1657,7 @@ class PluginSilverTrader extends PluginBase
 		if (remaining == 0)
 		{
 			DebugLog("DeliverNext: chest empty after " + globalPolls.ToString() + " polls, delivery ok for trader " + traderId.ToString());
-			g_Game.ObjectDelete(chest);
+			FinalizeChest(chest, deliveryPosition, traderId, buyerUid);
 			return;
 		}
 
@@ -1651,7 +1666,7 @@ class PluginSilverTrader extends PluginBase
 		{
 			DebugLog("DeliverNext GLOBAL TIMEOUT: " + remaining.ToString() + " item(s) forced to ground for trader " + traderId.ToString());
 			DropAllChestItems(chest, deliveryPosition);
-			FinalizeChest(chest, deliveryPosition, traderId);
+			FinalizeChest(chest, deliveryPosition, traderId, buyerUid);
 			return;
 		}
 
@@ -1666,7 +1681,7 @@ class PluginSilverTrader extends PluginBase
 					// Als gescheitert werten - Boden-Fallback, dann diesen Tick beenden (nur EINE Operation/Tick)
 					if (!DropDeliveryItem(chest, ItemBase.Cast(inFlightItem), deliveryPosition))
 					{
-						FinalizeChest(chest, deliveryPosition, traderId);
+						FinalizeChest(chest, deliveryPosition, traderId, buyerUid);
 						return;
 					}
 					g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, null, 0, globalPolls + 1);
@@ -1705,7 +1720,7 @@ class PluginSilverTrader extends PluginBase
 			// Move gar nicht angenommen (kein Buyer / kein Platz) - Boden-Fallback, dann Tick beenden
 			if (!DropDeliveryItem(chest, head, deliveryPosition))
 			{
-				FinalizeChest(chest, deliveryPosition, traderId);
+				FinalizeChest(chest, deliveryPosition, traderId, buyerUid);
 				return;
 			}
 		}
@@ -1739,8 +1754,9 @@ class PluginSilverTrader extends PluginBase
 	}
 
 	// Chest abschliessen: leer -> loeschen; nicht leer -> niemals mit Inhalt loeschen, stattdessen
-	// sichtbar zum Spieler bringen und Warnung loggen.
-	private void FinalizeChest(SilverBarterChest chest, vector deliveryPosition, int traderId)
+	// sichtbar zum Spieler bringen und Warnung loggen. In jedem Fall wird der Client ueber das Ende
+	// der Zustellung informiert, damit er die Sell-Liste aktualisieren kann.
+	private void FinalizeChest(SilverBarterChest chest, vector deliveryPosition, int traderId, string buyerUid)
 	{
 		if (!chest || chest.IsPendingDeletion())
 			return;
@@ -1753,11 +1769,31 @@ class PluginSilverTrader extends PluginBase
 		if (remaining == 0)
 		{
 			g_Game.ObjectDelete(chest);
+			NotifyDeliveryComplete(buyerUid);
 			return;
 		}
 
 		chest.SetPosition(deliveryPosition);
 		Print("[SilverBarter] WARNING: " + remaining.ToString() + " item(s) could not be delivered for trader " + traderId.ToString() + ", chest moved to delivery position instead of deleted.");
+		NotifyDeliveryComplete(buyerUid);
+	}
+
+	// Server: dem Kaeufer melden, dass die serielle Zustellung abgeschlossen ist. Traegt keinen Payload -
+	// der Client refresht daraufhin (mit kleinem Sync-Puffer) seine Sell-Liste. Menue zu -> egal, RPC laeuft
+	// clientseitig einfach ins Leere.
+	private void NotifyDeliveryComplete(string buyerUid)
+	{
+		PlayerBase buyer = GetPlayerByUid(buyerUid);
+		if (!buyer)
+			return;
+
+		PlayerIdentity identity = buyer.GetIdentity();
+		if (!identity)
+			return;
+
+		ScriptRPC rpc = new ScriptRPC();
+		rpc.Write(SilverRPC.SILVERRPC_DELIVERY_COMPLETE);
+		rpc.Send(buyer, SilverRPCManager.CHANNEL_SILVER_BARTER, true, identity);
 	}
 
 	private bool DropDeliveryItem(SilverBarterChest chest, ItemBase item, vector deliveryPosition)
