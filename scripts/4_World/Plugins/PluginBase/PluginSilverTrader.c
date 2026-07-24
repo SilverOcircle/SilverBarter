@@ -22,6 +22,9 @@ class PluginSilverTrader extends PluginBase
 	// Tiefenversatz fuer die SilverBarterChest-Staging-Position: muss innerhalb der Network-Bubble
 	// des Kaeufers bleiben (sonst "[syncinv] item not in bubble"), aber unter der Oberflaeche liegen.
 	const float CHEST_STAGING_DEPTH = 2.0;
+	const int DELIVERY_POLL_INTERVAL_MS = 200;
+	const int DELIVERY_ITEM_MAX_POLLS = 10;   // ~2s Sub-Timeout pro Item, dann Boden
+	const int DELIVERY_MAX_POLLS = 60;        // globales Sicherheitsnetz (~12s)
 
 	// Client-Seite
 	ref SilverTraderMenu m_traderMenu;
@@ -1605,134 +1608,169 @@ class PluginSilverTrader extends PluginBase
 		}
 	}
 
-	// Stufe 1: Chest zum Kaeufer bringen und TakeEntityToInventory() genau einmal pro Item anstossen.
-	// TakeEntityToInventory() ist ein DEFERRED Move (Sync-Move/Juncture-Validierung, siehe DayZPlayerInventory) -
-	// result=true bedeutet nur "angenommen", nicht "bereits umgesetzt". Deshalb hier KEINE Erfolgspruefung
-	// und KEIN Boden-Fallback - beides wuerde parallel zum noch laufenden Move auf demselben Item operieren
-	// und zu Client-/Server-Desyncs fuehren. Verifikation erst in Stufe 2 (VerifyDelivery).
+	// Stufe 1: Einstieg in die serielle Zustellung. Der 200ms-Delay vor diesem Callback gibt der
+	// Engine Zeit, Chest + Items dem Kaeufer-Client zu replizieren, bevor der erste Inventory-Move
+	// angestossen wird. Bewusstes kleines Restrisiko: die Chest ist als normale replizierte SeaChest
+	// fuer dieses Zeitfenster potenziell sicht-/zugreifbar - keine neue Ownership-Architektur dafuer.
 	void FinishDelivery(SilverBarterChest chest, string buyerUid, vector deliveryPosition, int traderId)
 	{
 		if (!chest || chest.IsPendingDeletion())
 			return;
 
 		PlayerBase buyer = GetPlayerByUid(buyerUid);
-
-		// Chest wurde bereits in Phase 4 nahe deliveryPosition (innerhalb der Bubble) erzeugt -
-		// kein Teleport mehr noetig. Der 200ms-Delay vor diesem Callback gibt der Engine Zeit,
-		// Chest + Items dem Kaeufer-Client zu replizieren, bevor der Inventory-Move angestossen wird.
-		// Bewusstes kleines Restrisiko: die Chest ist als normale replizierte SeaChest fuer dieses
-		// Zeitfenster potenziell sicht-/zugreifbar - keine neue Ownership-Architektur dafuer.
 		if (buyer)
-		{
 			DebugLog("FinishDelivery distance: " + vector.Distance(chest.GetPosition(), buyer.GetPosition()).ToString() + " chestPos=" + chest.GetPosition().ToString() + " buyerPos=" + buyer.GetPosition().ToString());
 
-			CargoBase cargo = chest.GetInventory().GetCargo();
-			if (cargo)
-			{
-				for (int i = cargo.GetItemCount() - 1; i >= 0; i--)
-				{
-					ItemBase item = ItemBase.Cast(cargo.GetItem(i));
-					if (!item)
-						continue;
-
-					bool takeResult = buyer.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, item);
-					DebugLog("FinishDelivery TakeEntityToInventory requested: " + item.GetType() + " result=" + takeResult.ToString());
-				}
-			}
-		}
-
-		g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.VerifyDelivery, 300, false, chest, buyerUid, deliveryPosition, traderId);
+		g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, null, 0, 0);
 	}
 
-	// Stufe 2: erst hier wird der Ausgang des deferred Moves aus Stufe 1 tatsaechlich ausgewertet.
-	// Nur Items, die nachweislich NICHT beim Kaeufer angekommen sind (noch in der Chest), bekommen
-	// jetzt den Boden-Fallback - nie parallel zum Inventory-Move aus Stufe 1.
-	void VerifyDelivery(SilverBarterChest chest, string buyerUid, vector deliveryPosition, int traderId)
+	// Stufe 2: Serielle Zustellung - pro Tick laeuft hoechstens EINE Inventaroperation (Take ODER Drop).
+	// Mehrere gleichzeitige TakeEntityToInventory()-Moves auf denselben Spieler kollidieren ueber
+	// Junctures/Reservations, sodass nur der erste greift. Deshalb wird immer nur ein Item in Zustellung
+	// gehalten (inFlightItem) und das naechste erst angestossen, wenn das vorige die Chest verlassen hat.
+	void DeliverNext(SilverBarterChest chest, string buyerUid, vector deliveryPosition, int traderId, EntityAI inFlightItem, int inFlightPolls, int globalPolls)
 	{
 		if (!chest || chest.IsPendingDeletion())
 			return;
 
-		PlayerBase buyer = GetPlayerByUid(buyerUid);
-
 		CargoBase cargo = chest.GetInventory().GetCargo();
-		if (cargo)
-		{
-			for (int i = cargo.GetItemCount() - 1; i >= 0; i--)
-			{
-				ItemBase item = ItemBase.Cast(cargo.GetItem(i));
-				if (!item)
-					continue;
-
-				EntityAI parent = item.GetHierarchyParent();
-				string parentType = "null";
-				if (parent)
-					parentType = parent.GetType();
-				EntityAI rootPlayer = item.GetHierarchyRootPlayer();
-				string rootPlayerType = "null";
-				if (rootPlayer)
-					rootPlayerType = rootPlayer.GetType();
-				DebugLog("VerifyDelivery: " + item.GetType() + " parent=" + parentType + " rootPlayer=" + rootPlayerType);
-
-				if (buyer && IsSafelyDelivered(item, buyer))
-					continue;
-				if (IsSafelyOnGround(item, deliveryPosition))
-					continue;
-
-				// Deferred Move aus Stufe 1 nachweislich nicht erfolgreich - erst jetzt Boden-Fallback
-				vector transform[4];
-				Math3D.MatrixIdentity4(transform);
-				transform[3] = deliveryPosition;
-				chest.GetInventory().DropEntityWithTransform(InventoryMode.SERVER, chest, item, transform);
-				// Wenn auch das fehlschlaegt: Item bleibt bewusst in der Chest fuer den Fallback unten
-			}
-		}
-
-		// Erfolgreich verschobene Items sind bereits aus der Cargo verschwunden - GetItemCount()==0 ist
-		// damit das massgebliche Erfolgskriterium, unabhaengig davon ob per Inventory-Move oder Boden-Drop.
 		int remaining = 0;
 		if (cargo)
 			remaining = cargo.GetItemCount();
 
-		DebugLog("VerifyDelivery finished: trader=" + traderId.ToString() + " remaining=" + remaining.ToString());
+		// Alles zugestellt
+		if (remaining == 0)
+		{
+			DebugLog("DeliverNext: chest empty after " + globalPolls.ToString() + " polls, delivery ok for trader " + traderId.ToString());
+			g_Game.ObjectDelete(chest);
+			return;
+		}
+
+		// Globales Sicherheitsnetz - greift im Normalfall nie (Sub-Timeout leert die Chest vorher)
+		if (globalPolls >= DELIVERY_MAX_POLLS)
+		{
+			DebugLog("DeliverNext GLOBAL TIMEOUT: " + remaining.ToString() + " item(s) forced to ground for trader " + traderId.ToString());
+			DropAllChestItems(chest, deliveryPosition);
+			FinalizeChest(chest, deliveryPosition, traderId);
+			return;
+		}
+
+		// In-Flight-Auswertung: hat das zuletzt angestossene Item die Chest verlassen?
+		if (inFlightItem)
+		{
+			if (inFlightItem.GetHierarchyParent() == chest)
+			{
+				// Noch in der Chest: Move laeuft noch oder ist gescheitert
+				if (inFlightPolls >= DELIVERY_ITEM_MAX_POLLS)
+				{
+					// Als gescheitert werten - Boden-Fallback, dann diesen Tick beenden (nur EINE Operation/Tick)
+					if (!DropDeliveryItem(chest, ItemBase.Cast(inFlightItem), deliveryPosition))
+					{
+						FinalizeChest(chest, deliveryPosition, traderId);
+						return;
+					}
+					g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, null, 0, globalPolls + 1);
+					return;
+				}
+
+				// Weiter warten - kein neuer Move auf demselben Item
+				g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, inFlightItem, inFlightPolls + 1, globalPolls + 1);
+				return;
+			}
+
+			// Erfolgreich verschwunden - abhaken, im selben Tick darf das naechste starten (vorige Operation ist fertig)
+			inFlightItem = null;
+			inFlightPolls = 0;
+		}
+
+		// Naechstes Item anstossen (genau eines)
+		ItemBase head = null;
+		if (cargo && cargo.GetItemCount() > 0)
+			head = ItemBase.Cast(cargo.GetItem(0));
+
+		if (head)
+		{
+			PlayerBase buyer = GetPlayerByUid(buyerUid);
+			bool takeResult = false;
+			if (buyer)
+				takeResult = buyer.GetInventory().TakeEntityToInventory(InventoryMode.SERVER, FindInventoryLocationType.ANY, head);
+
+			if (takeResult)
+			{
+				DebugLog("DeliverNext move started: " + head.GetType());
+				g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, head, 0, globalPolls + 1);
+				return;
+			}
+
+			// Move gar nicht angenommen (kein Buyer / kein Platz) - Boden-Fallback, dann Tick beenden
+			if (!DropDeliveryItem(chest, head, deliveryPosition))
+			{
+				FinalizeChest(chest, deliveryPosition, traderId);
+				return;
+			}
+		}
+
+		g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.DeliverNext, DELIVERY_POLL_INTERVAL_MS, false, chest, buyerUid, deliveryPosition, traderId, null, 0, globalPolls + 1);
+	}
+
+	// Legt alle verbliebenen Chest-Items auf den Boden (stabile Iteration ueber eine Kopie).
+	private void DropAllChestItems(SilverBarterChest chest, vector deliveryPosition)
+	{
+		if (!chest)
+			return;
+
+		CargoBase cargo = chest.GetInventory().GetCargo();
+		if (!cargo)
+			return;
+
+		array<ItemBase> items = new array<ItemBase>;
+		for (int i = cargo.GetItemCount() - 1; i >= 0; i--)
+		{
+			ItemBase item = ItemBase.Cast(cargo.GetItem(i));
+			if (item)
+				items.Insert(item);
+		}
+
+		foreach (ItemBase dropItem : items)
+		{
+			if (dropItem && dropItem.GetHierarchyParent() == chest)
+				DropDeliveryItem(chest, dropItem, deliveryPosition);
+		}
+	}
+
+	// Chest abschliessen: leer -> loeschen; nicht leer -> niemals mit Inhalt loeschen, stattdessen
+	// sichtbar zum Spieler bringen und Warnung loggen.
+	private void FinalizeChest(SilverBarterChest chest, vector deliveryPosition, int traderId)
+	{
+		if (!chest || chest.IsPendingDeletion())
+			return;
+
+		CargoBase cargo = chest.GetInventory().GetCargo();
+		int remaining = 0;
+		if (cargo)
+			remaining = cargo.GetItemCount();
 
 		if (remaining == 0)
 		{
 			g_Game.ObjectDelete(chest);
+			return;
 		}
-		else
-		{
-			// Letzter Notfall: Chest niemals mit Inhalt loeschen - stattdessen sichtbar zum Spieler bringen
-			chest.SetPosition(deliveryPosition);
-			Print("[SilverBarter] WARNING: " + remaining.ToString() + " item(s) could not be delivered for trader " + traderId.ToString() + ", chest moved to delivery position instead of deleted.");
-		}
+
+		chest.SetPosition(deliveryPosition);
+		Print("[SilverBarter] WARNING: " + remaining.ToString() + " item(s) could not be delivered for trader " + traderId.ToString() + ", chest moved to delivery position instead of deleted.");
 	}
 
-	private bool IsSafelyDelivered(ItemBase item, PlayerBase buyer)
+	private bool DropDeliveryItem(SilverBarterChest chest, ItemBase item, vector deliveryPosition)
 	{
-		if (!item || item.IsPendingDeletion())
-			return false;
-		if (item.GetHierarchyRootPlayer() != buyer)
+		if (!chest || !item || item.GetHierarchyParent() != chest)
 			return false;
 
-		EntityAI current = item;
-		while (current)
-		{
-			if (current.IsPendingDeletion())
-				return false;
-			current = current.GetHierarchyParent();
-		}
-		return true;
-	}
-
-	private bool IsSafelyOnGround(ItemBase item, vector deliveryPosition)
-	{
-		if (!item || item.IsPendingDeletion())
-			return false;
-		if (item.GetHierarchyParent())
-			return false;
-
-		float distance = vector.Distance(item.GetPosition(), deliveryPosition);
-		return distance <= 3.0;
+		vector transform[4];
+		Math3D.MatrixIdentity4(transform);
+		transform[3] = deliveryPosition;
+		bool dropped = chest.GetInventory().DropEntityWithTransform(InventoryMode.SERVER, chest, item, transform);
+		DebugLog("DropDeliveryItem: " + item.GetType() + " dropped=" + dropped.ToString());
+		return dropped;
 	}
 
 	private PlayerBase GetPlayerByUid(string uid)

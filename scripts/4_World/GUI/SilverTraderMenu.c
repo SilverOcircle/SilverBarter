@@ -148,13 +148,11 @@ class SilverTraderMenu extends UIScriptedMenu
 			m_buySelectedQuantities.Clear();
 	}
 
-	// Einmaliger verzoegerter Sell-Rebuild, damit frisch gespawnte Items ihre reale Menge zeigen (nicht den Erstellungs-Snapshot).
-	// 0.75s statt frueher 0.25s: die serverseitige Chest-Zustellung (FinishDelivery + VerifyDelivery) kann
-	// bis zu ~500ms dauern (200ms + 300ms zweistufig) - der Refresh muss danach liegen, sonst erfasst er
-	// das Inventar bevor gekaufte Items dort tatsaechlich angekommen sind.
+	// Einmaliger verzoegerter Sell-Rebuild nach dem maximalen Delivery-Polling.
+	// So erfasst die Liste auch Kaufitems, deren serverseitiger Inventory-Move mehrere Sekunden benoetigt.
 	void ScheduleSellRefresh()
 	{
-		m_pendingSellRefreshTimer = 0.75;
+		m_pendingSellRefreshTimer = 6.5;
 	}
 
 	void CleanupBuyUI()
