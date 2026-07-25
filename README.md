@@ -84,6 +84,14 @@ SilverBarter implements a realistic barter economy where:
 
 Trader inventories are saved to `$profile:\SilverBarter\TraderData\trader_X.json` where X is the trader ID.
 
+```json
+"CONFIG_VERSION": "2",
+"m_items": {
+    "SodaCan_Pipsi": 2,
+    "WoolGloves_Black": 7
+}
+```
+
 - Auto-save every 5 minutes
 - Save on server shutdown
 - Limited items reset to `maxQuantity` on every server restart
@@ -188,6 +196,8 @@ A trader with 5000 storage can hold more small items than large ones.
 
 Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 
+Missing settings are added automatically after a successful load. Version 1 array configs are migrated once to the compact map format; the original file is retained as a `.v1.bak` backup.
+
 ### Global Settings
 
 | Field | Type | Default | Description |
@@ -195,7 +205,7 @@ Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 | `m_debugMode` | bool | false | Enable verbose logging to RPT file. Useful for troubleshooting. Disable in production to reduce log spam. |
 | `m_zenSkillsXPEnabled` | bool | true | Grant ZenSkills "gathering" XP for successful trades. Only has an effect if the mod is compiled with the `ZenSkills` preprocessor define (i.e. the ZenSkills mod is installed) - otherwise ignored. See [ZenSkills Integration](#zenskills-integration). |
 | `m_quantityPriceClassnames` | array | [] | List of item classnames whose sell price is scaled by their current fill level (quantity ratio). Useful for stackable or refillable items where a half-full item should sell for less than a full one. |
-| `m_categoryValueMultipliers` | array | (see below) | Per-category price multiplier applied to `BuyPrice` (and therefore `SellPrice`). Lets whole categories be worth more or less without per-item price lists. See [Category Value Multipliers](#category-value-multipliers). |
+| `m_categoryValueMultipliers` | object/map | (see below) | Per-category price multiplier applied to `BuyPrice` (and therefore `SellPrice`). Lets whole categories be worth more or less without per-item price lists. See [Category Value Multipliers](#category-value-multipliers). |
 
 **How `m_quantityPriceClassnames` works:**
 
@@ -291,16 +301,10 @@ Filters are processed in order. Later entries override earlier ones.
 Override the default commission for specific item types:
 
 ```json
-"m_commissionOverrides": [
-    {
-        "classname": "TannedLeather",
-        "commission": 0.2
-    },
-    {
-        "classname": "Goldnugget_Base",
-        "commission": 0.1
-    }
-]
+"m_commissionOverrides": {
+    "TannedLeather": 0.2,
+    "Goldnugget_Base": 0.1
+}
 ```
 
 Lower commission = player keeps more value when selling. Use this for rare/valuable items.
@@ -310,16 +314,10 @@ Lower commission = player keeps more value when selling. Use this for rare/valua
 Each trader can optionally define its own category multipliers, overriding the global ones from [Category Value Multipliers](#category-value-multipliers) for that trader only:
 
 ```json
-"m_categoryValueMultipliers": [
-    {
-        "category": "weapons",
-        "multiplier": 12.0
-    },
-    {
-        "category": "food",
-        "multiplier": 0.05
-    }
-]
+"m_categoryValueMultipliers": {
+    "weapons": 12.0,
+    "food": 0.05
+}
 ```
 
 Lookup order for a given item's category: **trader override → global `m_categoryValueMultipliers` → 1.0 fallback**. Leave this field out (or empty) to use the global values for every category — most traders won't need it. Invalid categories or multipliers ≤ 0 are ignored.
@@ -331,12 +329,9 @@ Use this for a specialized trader, e.g. a weapons dealer that pays better than a
 Items that reset to a fixed quantity on every server restart:
 
 ```json
-"m_limitedItems": [
-    {
-        "classname": "ZenSkills_Book_Survival",
-        "maxQuantity": 2
-    }
-]
+"m_limitedItems": {
+    "ZenSkills_Book_Survival": 2
+}
 ```
 
 Use this for rare items that should have controlled availability.
@@ -346,16 +341,10 @@ Use this for rare items that should have controlled availability.
 Starting inventory when the trader is first created:
 
 ```json
-"m_defaultItems": [
-    {
-        "classname": "Hatchet",
-        "quantity": 10
-    },
-    {
-        "classname": "BandageDressing",
-        "quantity": 35
-    }
-]
+"m_defaultItems": {
+    "Hatchet": 10,
+    "BandageDressing": 35
+}
 ```
 
 Only applied if no saved trader data exists (first start).
@@ -567,26 +556,26 @@ The multiplier is applied directly in `BuyPrice = DumpingMultiplier * Quantity *
 Global multipliers live directly in `m_categoryValueMultipliers` inside `SilverBarterConfig.json` (no separate file). They are generated with defaults on first start, and if you update the mod from an older version without this field, it is automatically backfilled with the same defaults on the next config load.
 
 ```json
-"m_categoryValueMultipliers": [
-    { "category": "weapons", "multiplier": 1.0 },
-    { "category": "attachments", "multiplier": 1.0 },
-    { "category": "magazines", "multiplier": 1.0 },
-    { "category": "ammo", "multiplier": 1.0 },
-    { "category": "tools", "multiplier": 1.0 },
-    { "category": "food", "multiplier": 1.0 },
-    { "category": "clothing", "multiplier": 1.0 },
-    { "category": "medical", "multiplier": 1.0 },
-    { "category": "electronic", "multiplier": 1.0 },
-    { "category": "base_building", "multiplier": 1.0 },
-    { "category": "vehicle_parts", "multiplier": 1.0 },
-    { "category": "other", "multiplier": 1.0 }
-]
+"m_categoryValueMultipliers": {
+    "weapons": 1.0,
+    "attachments": 1.0,
+    "magazines": 1.0,
+    "ammo": 1.0,
+    "tools": 1.0,
+    "food": 1.0,
+    "clothing": 1.0,
+    "medical": 1.0,
+    "electronic": 1.0,
+    "base_building": 1.0,
+    "vehicle_parts": 1.0,
+    "other": 1.0
+}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `category` | string | One of the [valid categories](#valid-categories). Unknown/misspelled values are ignored. |
-| `multiplier` | float | Price multiplier for that category. Must be `> 0` — zero or negative values are ignored and the category falls back to `1.0`. |
+| map key | string | One of the [valid categories](#valid-categories). Unknown/misspelled values are ignored. |
+| map value | float | Price multiplier for that category. Must be `> 0` — zero or negative values are ignored and the category falls back to `1.0`. |
 
 Individual traders can also define their own multipliers that take priority over these global values for that trader only — see [Category Value Multiplier Overrides](#category-value-multiplier-overrides).
 
@@ -594,13 +583,13 @@ Individual traders can also define their own multipliers that take priority over
 
 **1. Make ammo nearly worthless to buy, but keep it fairly valuable to find:**
 ```json
-{ "category": "ammo", "multiplier": 0.1 }
+"m_categoryValueMultipliers": { "ammo": 0.1 }
 ```
 A 20-round box that previously cost 1000 units at empty stock now costs only 100 units — encourages players to actually buy ammo instead of hoarding what they loot.
 
 **2. Make vehicle parts the most expensive category server-wide:**
 ```json
-{ "category": "vehicle_parts", "multiplier": 6.0 }
+"m_categoryValueMultipliers": { "vehicle_parts": 6.0 }
 ```
 Every trader's buy/sell price for vehicle parts is multiplied by 6 instead of the default 2.5, making car repairs a serious investment.
 

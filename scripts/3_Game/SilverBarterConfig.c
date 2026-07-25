@@ -1,18 +1,25 @@
+static string SilverBarterSanitizeJsonError(string error)
+{
+	error.Replace("\r", " ");
+	error.Replace("\n", " ");
+	return error;
+}
+
 // SilverBarter Haupt-Konfiguration
 class SilverBarterConfig
 {
 	// Config-Pfade
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterConfig.json";
-	private const static string CURRENT_VERSION = "1";
+	private const static string CURRENT_VERSION = "2";
 
-	string CONFIG_VERSION;
+	string CONFIG_VERSION = CURRENT_VERSION;
 
 	// Globale Einstellungen
-	bool m_debugMode;
-	bool m_zenSkillsXPEnabled;
-	ref array<string> m_quantityPriceClassnames;
-	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers;
+	bool m_debugMode = false;
+	bool m_zenSkillsXPEnabled = true;
+	ref array<string> m_quantityPriceClassnames = new array<string>;
+	ref map<string, float> m_categoryValueMultipliers = new map<string, float>;
 
 	// Trader-Konfiguration
 	ref array<ref SilverTrader_ServerConfig> m_traders;
@@ -37,13 +44,52 @@ class SilverBarterConfig
 		if (FileExist(path))
 		{
 			Print("[SilverBarter] Loading config: " + path);
-			JsonFileLoader<SilverBarterConfig>.JsonLoadFile(path, this);
-			Print("[SilverBarter] Config load finished. If there are JSON errors above, fix the file manually.");
-
-			if (!m_categoryValueMultipliers)
+			bool configChanged = false;
+			SilverBarterLegacyConfig legacyConfig = new SilverBarterLegacyConfig();
+			string legacyError;
+			bool loadedLegacy = JsonFileLoader<SilverBarterLegacyConfig>.LoadFile(path, legacyConfig, legacyError);
+			if (loadedLegacy && legacyConfig.CONFIG_VERSION == "1")
 			{
-				Print("[SilverBarter] WARNING: m_categoryValueMultipliers missing or config load failed, using runtime defaults only");
-				SetDefaultCategoryValueMultipliers();
+				if (!CreateMigrationBackup(path))
+					return;
+				MigrateLegacy(legacyConfig);
+				configChanged = true;
+				Print("[SilverBarter] Config migrated from array format to map format.");
+			}
+			else
+			{
+				SilverBarterConfig loadedConfig = new SilverBarterConfig();
+				loadedConfig.CONFIG_VERSION = "";
+				loadedConfig.m_quantityPriceClassnames = null;
+				loadedConfig.m_categoryValueMultipliers = null;
+				loadedConfig.m_traders = null;
+				string loadError;
+				if (!JsonFileLoader<SilverBarterConfig>.LoadFile(path, loadedConfig, loadError))
+				{
+					Print("[SilverBarter] ERROR: Config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
+					return;
+				}
+				if (loadedConfig.CONFIG_VERSION != "" && loadedConfig.CONFIG_VERSION != CURRENT_VERSION)
+				{
+					Print("[SilverBarter] ERROR: Unsupported config version, file preserved: " + loadedConfig.CONFIG_VERSION);
+					return;
+				}
+				if (loadedConfig.CONFIG_VERSION == "")
+					configChanged = true;
+				ApplyLoadedConfig(loadedConfig);
+			}
+
+			if (EnsureDefaults())
+				configChanged = true;
+			CONFIG_VERSION = CURRENT_VERSION;
+			if (configChanged)
+			{
+				Save();
+				Print("[SilverBarter] Config load and update finished.");
+			}
+			else
+			{
+				Print("[SilverBarter] Config load finished, no update required.");
 			}
 		}
 		else
@@ -54,9 +100,197 @@ class SilverBarterConfig
 		}
 	}
 
-	private void Migrate()
+	private bool EnsureDefaults()
 	{
-		// Keine Migrationen aktuell noetig
+		bool changed = false;
+		if (!m_quantityPriceClassnames)
+		{
+			m_quantityPriceClassnames = new array<string>;
+			changed = true;
+		}
+		if (!m_traders)
+		{
+			m_traders = new array<ref SilverTrader_ServerConfig>;
+			changed = true;
+		}
+		if (!m_categoryValueMultipliers)
+		{
+			m_categoryValueMultipliers = new map<string, float>;
+			changed = true;
+		}
+		if (NormalizeCategoryValueMultipliers())
+			changed = true;
+
+		if (EnsureCategoryValueMultiplier("weapons", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("attachments", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("magazines", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("ammo", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("tools", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("food", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("clothing", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("medical", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("electronic", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("base_building", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("vehicle_parts", 1.0)) changed = true;
+		if (EnsureCategoryValueMultiplier("other", 1.0)) changed = true;
+
+		foreach (SilverTrader_ServerConfig trader : m_traders)
+		{
+			if (trader)
+				trader.ValidateAndNormalize();
+		}
+		return changed;
+	}
+
+	private bool NormalizeCategoryValueMultipliers()
+	{
+		bool changed = false;
+		map<string, float> normalized = new map<string, float>;
+		foreach (string category, float multiplier : m_categoryValueMultipliers)
+		{
+			string normalizedCategory = category;
+			normalizedCategory.ToLower();
+			if (normalizedCategory != "")
+				normalized.Set(normalizedCategory, multiplier);
+			if (normalizedCategory != category)
+				changed = true;
+		}
+		if (normalized.Count() != m_categoryValueMultipliers.Count())
+			changed = true;
+		m_categoryValueMultipliers = normalized;
+		return changed;
+	}
+
+	private void ApplyLoadedConfig(SilverBarterConfig loadedConfig)
+	{
+		CONFIG_VERSION = loadedConfig.CONFIG_VERSION;
+		m_debugMode = loadedConfig.m_debugMode;
+		m_zenSkillsXPEnabled = loadedConfig.m_zenSkillsXPEnabled;
+		m_quantityPriceClassnames = loadedConfig.m_quantityPriceClassnames;
+		m_categoryValueMultipliers = loadedConfig.m_categoryValueMultipliers;
+		m_traders = loadedConfig.m_traders;
+		loadedConfig.m_quantityPriceClassnames = null;
+		loadedConfig.m_categoryValueMultipliers = null;
+		loadedConfig.m_traders = null;
+	}
+
+	private void MigrateLegacy(SilverBarterLegacyConfig legacyConfig)
+	{
+		m_debugMode = legacyConfig.m_debugMode;
+		m_zenSkillsXPEnabled = legacyConfig.m_zenSkillsXPEnabled;
+		m_quantityPriceClassnames = legacyConfig.m_quantityPriceClassnames;
+		legacyConfig.m_quantityPriceClassnames = null;
+
+		m_categoryValueMultipliers = new map<string, float>;
+		if (legacyConfig.m_categoryValueMultipliers)
+		{
+			foreach (SilverCategoryValueMultiplier legacyMultiplier : legacyConfig.m_categoryValueMultipliers)
+			{
+				if (legacyMultiplier && legacyMultiplier.category != "")
+					m_categoryValueMultipliers.Set(legacyMultiplier.category, legacyMultiplier.multiplier);
+			}
+		}
+
+		m_traders = new array<ref SilverTrader_ServerConfig>;
+		if (legacyConfig.m_traders)
+		{
+			foreach (SilverTraderLegacyConfig legacyTrader : legacyConfig.m_traders)
+			{
+				if (legacyTrader)
+					m_traders.Insert(MigrateLegacyTrader(legacyTrader));
+			}
+		}
+	}
+
+	private SilverTrader_ServerConfig MigrateLegacyTrader(SilverTraderLegacyConfig legacyTrader)
+	{
+		SilverTrader_ServerConfig trader = new SilverTrader_ServerConfig();
+		trader.m_traderId = legacyTrader.m_traderId;
+		trader.m_position = legacyTrader.m_position;
+		trader.m_storageMaxSize = legacyTrader.m_storageMaxSize;
+		trader.m_storageCommission = legacyTrader.m_storageCommission;
+		trader.m_dumpingByAmountAlgorithm = legacyTrader.m_dumpingByAmountAlgorithm;
+		trader.m_dumpingByAmountModifier = legacyTrader.m_dumpingByAmountModifier;
+		trader.m_dumpingByBadQuality = legacyTrader.m_dumpingByBadQuality;
+		trader.m_sellMaxQuantityPercent = legacyTrader.m_sellMaxQuantityPercent;
+		trader.m_buyMaxQuantityPercent = legacyTrader.m_buyMaxQuantityPercent;
+		trader.m_classname = legacyTrader.m_classname;
+		trader.m_orientation = legacyTrader.m_orientation;
+		trader.m_buyFilter = legacyTrader.m_buyFilter;
+		trader.m_sellFilter = legacyTrader.m_sellFilter;
+		trader.m_attachments = legacyTrader.m_attachments;
+		legacyTrader.m_buyFilter = null;
+		legacyTrader.m_sellFilter = null;
+		legacyTrader.m_attachments = null;
+
+		trader.m_commissionOverrides = ConvertLegacyCommissionOverrides(legacyTrader.m_commissionOverrides);
+		trader.m_categoryValueMultipliers = ConvertLegacyCategoryMultipliers(legacyTrader.m_categoryValueMultipliers);
+		trader.m_defaultItems = ConvertLegacyDefaultItems(legacyTrader.m_defaultItems);
+		trader.m_limitedItems = ConvertLegacyLimitedItems(legacyTrader.m_limitedItems);
+		return trader;
+	}
+
+	private map<string, float> ConvertLegacyCommissionOverrides(array<ref SilverCommissionOverride> entries)
+	{
+		map<string, float> result = new map<string, float>;
+		if (!entries)
+			return result;
+		foreach (SilverCommissionOverride entry : entries)
+		{
+			if (entry && entry.classname != "")
+				result.Set(entry.classname, entry.commission);
+		}
+		return result;
+	}
+
+	private map<string, float> ConvertLegacyCategoryMultipliers(array<ref SilverCategoryValueMultiplier> entries)
+	{
+		map<string, float> result = new map<string, float>;
+		if (!entries)
+			return result;
+		foreach (SilverCategoryValueMultiplier entry : entries)
+		{
+			if (entry && entry.category != "")
+				result.Set(entry.category, entry.multiplier);
+		}
+		return result;
+	}
+
+	private map<string, float> ConvertLegacyDefaultItems(array<ref SilverTrader_ItemEntry> entries)
+	{
+		map<string, float> result = new map<string, float>;
+		if (!entries)
+			return result;
+		foreach (SilverTrader_ItemEntry entry : entries)
+		{
+			if (entry && entry.classname != "")
+				result.Set(entry.classname, entry.quantity);
+		}
+		return result;
+	}
+
+	private map<string, int> ConvertLegacyLimitedItems(array<ref SilverTrader_LimitedItem> entries)
+	{
+		map<string, int> result = new map<string, int>;
+		if (!entries)
+			return result;
+		foreach (SilverTrader_LimitedItem entry : entries)
+		{
+			if (entry && entry.classname != "")
+				result.Set(entry.classname, entry.maxQuantity);
+		}
+		return result;
+	}
+
+	private bool CreateMigrationBackup(string path)
+	{
+		string backupPath = path + ".v1.bak";
+		if (!FileExist(backupPath) && !CopyFile(path, backupPath))
+		{
+			Print("[SilverBarter] WARNING: Could not create migration backup: " + backupPath);
+			return false;
+		}
+		return true;
 	}
 
 	void Save()
@@ -70,7 +304,9 @@ class SilverBarterConfig
 			MakeDirectory(MOD_FOLDER);
 		}
 
-		JsonFileLoader<SilverBarterConfig>.JsonSaveFile(MOD_FOLDER + CONFIG_NAME, this);
+		string saveError;
+		if (!JsonFileLoader<SilverBarterConfig>.SaveFile(MOD_FOLDER + CONFIG_NAME, this, saveError))
+			Print("[SilverBarter] ERROR: Config could not be saved: " + SilverBarterSanitizeJsonError(saveError));
 	}
 
 	void SetDefaultValues()
@@ -174,195 +410,195 @@ class SilverBarterConfig
 		exampleTrader.m_attachments.Insert("Shemag_Green");
 
 		// Item-spezifische Commission-Overrides (wertvolle/seltene Items)
-		exampleTrader.m_commissionOverrides = new array<ref SilverCommissionOverride>;
+		exampleTrader.m_commissionOverrides = new map<string, float>;
 
 		SilverCommissionOverride leatherOverride = new SilverCommissionOverride();
 		leatherOverride.classname = "TannedLeather";
 		leatherOverride.commission = 0.2;
-		exampleTrader.m_commissionOverrides.Insert(leatherOverride);
+		exampleTrader.m_commissionOverrides.Insert(leatherOverride.classname, leatherOverride.commission);
 
 		// Limitierte Items (werden bei jedem Restart auf maxQuantity zurueckgesetzt)
-		exampleTrader.m_limitedItems = new array<ref SilverTrader_LimitedItem>;
+		exampleTrader.m_limitedItems = new map<string, int>;
 
 		SilverTrader_LimitedItem limitedBook1 = new SilverTrader_LimitedItem();
 		limitedBook1.classname = "ZenSkills_Book_Survival";
 		limitedBook1.maxQuantity = 2;
-		exampleTrader.m_limitedItems.Insert(limitedBook1);
+		exampleTrader.m_limitedItems.Insert(limitedBook1.classname, limitedBook1.maxQuantity);
 
 		SilverTrader_LimitedItem limitedBook2 = new SilverTrader_LimitedItem();
 		limitedBook2.classname = "ZenSkills_Book_Crafting";
 		limitedBook2.maxQuantity = 2;
-		exampleTrader.m_limitedItems.Insert(limitedBook2);
+		exampleTrader.m_limitedItems.Insert(limitedBook2.classname, limitedBook2.maxQuantity);
 
 		SilverTrader_LimitedItem limitedBook3 = new SilverTrader_LimitedItem();
 		limitedBook3.classname = "ZenSkills_Book_Hunting";
 		limitedBook3.maxQuantity = 2;
-		exampleTrader.m_limitedItems.Insert(limitedBook3);
+		exampleTrader.m_limitedItems.Insert(limitedBook3.classname, limitedBook3.maxQuantity);
 
 		SilverTrader_LimitedItem limitedBook4 = new SilverTrader_LimitedItem();
 		limitedBook4.classname = "ZenSkills_Book_Gathering";
 		limitedBook4.maxQuantity = 2;
-		exampleTrader.m_limitedItems.Insert(limitedBook4);
+		exampleTrader.m_limitedItems.Insert(limitedBook4.classname, limitedBook4.maxQuantity);
 
 		// Standard-Items die der Trader von Anfang an hat
-		exampleTrader.m_defaultItems = new array<ref SilverTrader_ItemEntry>;
+		exampleTrader.m_defaultItems = new map<string, float>;
 
 		SilverTrader_ItemEntry item1 = new SilverTrader_ItemEntry();
 		item1.classname = "AmmoBox_308Win_20Rnd";
 		item1.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item1);
+		exampleTrader.m_defaultItems.Insert(item1.classname, item1.quantity);
 
 		SilverTrader_ItemEntry item2 = new SilverTrader_ItemEntry();
 		item2.classname = "AmmoBox_22_50Rnd";
 		item2.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item2);
+		exampleTrader.m_defaultItems.Insert(item2.classname, item2.quantity);
 
 		SilverTrader_ItemEntry item3 = new SilverTrader_ItemEntry();
 		item3.classname = "AmmoBox_45ACP_25rnd";
 		item3.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item3);
+		exampleTrader.m_defaultItems.Insert(item3.classname, item3.quantity);
 
 		SilverTrader_ItemEntry item4 = new SilverTrader_ItemEntry();
 		item4.classname = "ZenSkills_Injector_ExpBoost";
 		item4.quantity = 8;
-		exampleTrader.m_defaultItems.Insert(item4);
+		exampleTrader.m_defaultItems.Insert(item4.classname, item4.quantity);
 
 		SilverTrader_ItemEntry item5 = new SilverTrader_ItemEntry();
 		item5.classname = "ZenSkills_Injector_PerkReset";
 		item5.quantity = 2;
-		exampleTrader.m_defaultItems.Insert(item5);
+		exampleTrader.m_defaultItems.Insert(item5.classname, item5.quantity);
 
 		SilverTrader_ItemEntry item6 = new SilverTrader_ItemEntry();
 		item6.classname = "MeatTenderizer";
 		item6.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item6);
+		exampleTrader.m_defaultItems.Insert(item6.classname, item6.quantity);
 
 		SilverTrader_ItemEntry item11 = new SilverTrader_ItemEntry();
 		item11.classname = "NailBox";
 		item11.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item11);
+		exampleTrader.m_defaultItems.Insert(item11.classname, item11.quantity);
 
 		SilverTrader_ItemEntry item12 = new SilverTrader_ItemEntry();
 		item12.classname = "Battery9V";
 		item12.quantity = 30;
-		exampleTrader.m_defaultItems.Insert(item12);
+		exampleTrader.m_defaultItems.Insert(item12.classname, item12.quantity);
 
 		SilverTrader_ItemEntry item13 = new SilverTrader_ItemEntry();
 		item13.classname = "Ammo_45ACP";
 		item13.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item13);
+		exampleTrader.m_defaultItems.Insert(item13.classname, item13.quantity);
 
 		SilverTrader_ItemEntry item14 = new SilverTrader_ItemEntry();
 		item14.classname = "Ammo_380";
 		item14.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item14);
+		exampleTrader.m_defaultItems.Insert(item14.classname, item14.quantity);
 
 		SilverTrader_ItemEntry item15 = new SilverTrader_ItemEntry();
 		item15.classname = "Ammo_22";
 		item15.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item15);
+		exampleTrader.m_defaultItems.Insert(item15.classname, item15.quantity);
 
 		SilverTrader_ItemEntry item16 = new SilverTrader_ItemEntry();
 		item16.classname = "Ammo_12gaSlug";
 		item16.quantity = 20;
-		exampleTrader.m_defaultItems.Insert(item16);
+		exampleTrader.m_defaultItems.Insert(item16.classname, item16.quantity);
 
 		SilverTrader_ItemEntry item17 = new SilverTrader_ItemEntry();
 		item17.classname = "Ammo_12gaPellets";
 		item17.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item17);
+		exampleTrader.m_defaultItems.Insert(item17.classname, item17.quantity);
 
 		SilverTrader_ItemEntry item18 = new SilverTrader_ItemEntry();
 		item18.classname = "AmmoBox_12gaSlug_10Rnd";
 		item18.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item18);
+		exampleTrader.m_defaultItems.Insert(item18.classname, item18.quantity);
 
 		SilverTrader_ItemEntry item19 = new SilverTrader_ItemEntry();
 		item19.classname = "AmmoBox_00buck_10rnd";
 		item19.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item19);
+		exampleTrader.m_defaultItems.Insert(item19.classname, item19.quantity);
 
 		SilverTrader_ItemEntry item20 = new SilverTrader_ItemEntry();
 		item20.classname = "Hatchet";
 		item20.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item20);
+		exampleTrader.m_defaultItems.Insert(item20.classname, item20.quantity);
 
 		SilverTrader_ItemEntry item21 = new SilverTrader_ItemEntry();
 		item21.classname = "B95";
 		item21.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item21);
+		exampleTrader.m_defaultItems.Insert(item21.classname, item21.quantity);
 
 		SilverTrader_ItemEntry item22 = new SilverTrader_ItemEntry();
 		item22.classname = "MKII";
 		item22.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item22);
+		exampleTrader.m_defaultItems.Insert(item22.classname, item22.quantity);
 
 		SilverTrader_ItemEntry item23 = new SilverTrader_ItemEntry();
 		item23.classname = "P1";
 		item23.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item23);
+		exampleTrader.m_defaultItems.Insert(item23.classname, item23.quantity);
 
 		SilverTrader_ItemEntry item24 = new SilverTrader_ItemEntry();
 		item24.classname = "WaterBottle";
 		item24.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item24);
+		exampleTrader.m_defaultItems.Insert(item24.classname, item24.quantity);
 
 		SilverTrader_ItemEntry item25 = new SilverTrader_ItemEntry();
 		item25.classname = "Crackers";
 		item25.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item25);
+		exampleTrader.m_defaultItems.Insert(item25.classname, item25.quantity);
 
 		SilverTrader_ItemEntry item26 = new SilverTrader_ItemEntry();
 		item26.classname = "SaltySticks";
 		item26.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item26);
+		exampleTrader.m_defaultItems.Insert(item26.classname, item26.quantity);
 
 		SilverTrader_ItemEntry item27 = new SilverTrader_ItemEntry();
 		item27.classname = "Zagorky";
 		item27.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item27);
+		exampleTrader.m_defaultItems.Insert(item27.classname, item27.quantity);
 
 		SilverTrader_ItemEntry item28 = new SilverTrader_ItemEntry();
 		item28.classname = "Pate";
 		item28.quantity = 10;
-		exampleTrader.m_defaultItems.Insert(item28);
+		exampleTrader.m_defaultItems.Insert(item28.classname, item28.quantity);
 
 		SilverTrader_ItemEntry item29 = new SilverTrader_ItemEntry();
 		item29.classname = "BandageDressing";
 		item29.quantity = 35;
-		exampleTrader.m_defaultItems.Insert(item29);
+		exampleTrader.m_defaultItems.Insert(item29.classname, item29.quantity);
 
 		SilverTrader_ItemEntry item30 = new SilverTrader_ItemEntry();
 		item30.classname = "Whetstone";
 		item30.quantity = 20;
-		exampleTrader.m_defaultItems.Insert(item30);
+		exampleTrader.m_defaultItems.Insert(item30.classname, item30.quantity);
 
 		SilverTrader_ItemEntry item31 = new SilverTrader_ItemEntry();
 		item31.classname = "Screwdriver";
 		item31.quantity = 20;
-		exampleTrader.m_defaultItems.Insert(item31);
+		exampleTrader.m_defaultItems.Insert(item31.classname, item31.quantity);
 
 		SilverTrader_ItemEntry item32 = new SilverTrader_ItemEntry();
 		item32.classname = "WoolGloves_Black";
 		item32.quantity = 8;
-		exampleTrader.m_defaultItems.Insert(item32);
+		exampleTrader.m_defaultItems.Insert(item32.classname, item32.quantity);
 
 		SilverTrader_ItemEntry item33 = new SilverTrader_ItemEntry();
 		item33.classname = "Shemag_Green";
 		item33.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item33);
+		exampleTrader.m_defaultItems.Insert(item33.classname, item33.quantity);
 
 		SilverTrader_ItemEntry item34 = new SilverTrader_ItemEntry();
 		item34.classname = "HikingBootsLow_Black";
 		item34.quantity = 5;
-		exampleTrader.m_defaultItems.Insert(item34);
+		exampleTrader.m_defaultItems.Insert(item34.classname, item34.quantity);
 
 		m_traders.Insert(exampleTrader);
 	}
 
 	private void SetDefaultCategoryValueMultipliers()
 	{
-		m_categoryValueMultipliers = new array<ref SilverCategoryValueMultiplier>;
+		m_categoryValueMultipliers = new map<string, float>;
 		InsertCategoryValueMultiplier("weapons", 1.0);
 		InsertCategoryValueMultiplier("attachments", 1.0);
 		InsertCategoryValueMultiplier("magazines", 1.0);
@@ -379,10 +615,17 @@ class SilverBarterConfig
 
 	private void InsertCategoryValueMultiplier(string category, float multiplier)
 	{
-		SilverCategoryValueMultiplier entry = new SilverCategoryValueMultiplier();
-		entry.category = category;
-		entry.multiplier = multiplier;
-		m_categoryValueMultipliers.Insert(entry);
+		m_categoryValueMultipliers.Insert(category, multiplier);
+	}
+
+	private bool EnsureCategoryValueMultiplier(string category, float multiplier)
+	{
+		if (!m_categoryValueMultipliers.Contains(category))
+		{
+			m_categoryValueMultipliers.Insert(category, multiplier);
+			return true;
+		}
+		return false;
 	}
 };
 
@@ -403,21 +646,71 @@ class SilverTrader_Data
 		m_items = new map<string, float>;
 	}
 
-	void LoadFromJson(string path)
+	bool LoadFromJson(string path)
 	{
 		if (!FileExist(path))
-			return;
+			return false;
 
 		SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
+		jsonData.CONFIG_VERSION = "";
+		jsonData.m_items = null;
 		Print("[SilverBarter] Loading trader data: " + path);
-		JsonFileLoader<SilverTrader_DataJson>.JsonLoadFile(path, jsonData);
-		Print("[SilverBarter] Trader data load finished. If there are JSON errors above, fix the file manually.");
+		string loadError;
+		bool loadedCurrent = JsonFileLoader<SilverTrader_DataJson>.LoadFile(path, jsonData, loadError);
+		if (loadedCurrent && jsonData && jsonData.CONFIG_VERSION != "" && jsonData.CONFIG_VERSION != "2")
+		{
+			Print("[SilverBarter] ERROR: Unsupported trader data version, file preserved: " + jsonData.CONFIG_VERSION);
+			return false;
+		}
 
 		// m_items erst anfassen wenn jsonData gültig ist
-		if (!jsonData || !jsonData.m_itemList)
+		bool currentFormat = loadedCurrent && jsonData && jsonData.m_items && jsonData.CONFIG_VERSION == "2";
+		if (!currentFormat)
 		{
-			Print("[SilverBarter] WARNING: Trader data parse failed, existing data preserved: " + path);
-			return;
+			SilverTrader_DataJsonLegacy legacyData = new SilverTrader_DataJsonLegacy();
+			string legacyError;
+			bool loadedLegacy = JsonFileLoader<SilverTrader_DataJsonLegacy>.LoadFile(path, legacyData, legacyError);
+			bool legacyHasEntries = loadedLegacy && legacyData && legacyData.m_itemList && legacyData.m_itemList.Count() > 0;
+			bool unversionedMap = loadedCurrent && jsonData && jsonData.m_items && jsonData.CONFIG_VERSION == "";
+
+			if (legacyHasEntries)
+			{
+				jsonData.CONFIG_VERSION = "2";
+				jsonData.m_items = new map<string, float>;
+				foreach (SilverTrader_ItemEntry legacyEntry : legacyData.m_itemList)
+				{
+					if (legacyEntry && legacyEntry.classname != "" && IsValidClassname(legacyEntry.classname))
+						jsonData.m_items.Set(legacyEntry.classname, legacyEntry.quantity);
+				}
+
+				string backupPath = path + ".v1.bak";
+				if (!FileExist(backupPath) && !CopyFile(path, backupPath))
+				{
+					Print("[SilverBarter] ERROR: Trader data migration backup could not be created: " + backupPath);
+					return false;
+				}
+				if (!SaveMigratedTraderData(path, jsonData))
+					return false;
+				Print("[SilverBarter] Trader data migrated from array format to map format: " + path);
+			}
+			else if (unversionedMap)
+			{
+				jsonData.CONFIG_VERSION = "2";
+				string unversionedBackupPath = path + ".unversioned.bak";
+				if (!FileExist(unversionedBackupPath) && !CopyFile(path, unversionedBackupPath))
+				{
+					Print("[SilverBarter] ERROR: Unversioned trader data backup could not be created: " + unversionedBackupPath);
+					return false;
+				}
+				if (!SaveMigratedTraderData(path, jsonData))
+					return false;
+				Print("[SilverBarter] Unversioned trader data updated to format version 2: " + path);
+			}
+			else
+			{
+				Print("[SilverBarter] WARNING: Trader data parse failed, file preserved: " + path + " | " + SilverBarterSanitizeJsonError(loadError) + " | " + SilverBarterSanitizeJsonError(legacyError));
+				return false;
+			}
 		}
 
 		if (!m_items)
@@ -425,30 +718,40 @@ class SilverTrader_Data
 		else
 			m_items.Clear();
 
-		foreach (SilverTrader_ItemEntry entry : jsonData.m_itemList)
+		foreach (string classname, float quantity : jsonData.m_items)
 		{
-			if (entry && entry.classname != "" && IsValidClassname(entry.classname))
-				m_items.Insert(entry.classname, entry.quantity);
+			if (classname != "" && IsValidClassname(classname))
+				m_items.Insert(classname, quantity);
 		}
+		Print("[SilverBarter] Trader data load finished.");
+		return true;
 	}
 
 	void SaveToJson(string path)
 	{
 		SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
-		jsonData.m_itemList = new array<ref SilverTrader_ItemEntry>;
-
+		jsonData.CONFIG_VERSION = "2";
+		jsonData.m_items = new map<string, float>;
 		if (m_items)
 		{
 			foreach (string classname, float quantity : m_items)
-			{
-				SilverTrader_ItemEntry entry = new SilverTrader_ItemEntry();
-				entry.classname = classname;
-				entry.quantity = quantity;
-				jsonData.m_itemList.Insert(entry);
-			}
+				jsonData.m_items.Insert(classname, quantity);
 		}
 
-		JsonFileLoader<SilverTrader_DataJson>.JsonSaveFile(path, jsonData);
+		string saveError;
+		if (!JsonFileLoader<SilverTrader_DataJson>.SaveFile(path, jsonData, saveError))
+			Print("[SilverBarter] ERROR: Trader data could not be saved: " + path + " | " + SilverBarterSanitizeJsonError(saveError));
+	}
+
+	private bool SaveMigratedTraderData(string path, SilverTrader_DataJson jsonData)
+	{
+		string migrationSaveError;
+		if (!JsonFileLoader<SilverTrader_DataJson>.SaveFile(path, jsonData, migrationSaveError))
+		{
+			Print("[SilverBarter] ERROR: Migrated trader data could not be saved: " + SilverBarterSanitizeJsonError(migrationSaveError));
+			return false;
+		}
+		return true;
 	}
 
 	private bool IsValidClassname(string classname)
@@ -466,12 +769,13 @@ class SilverTrader_Data
 // JSON-Serialisierungs-Hilfsklassen
 class SilverTrader_DataJson
 {
-	ref array<ref SilverTrader_ItemEntry> m_itemList;
+	string CONFIG_VERSION = "2";
+	ref map<string, float> m_items;
+};
 
-	void SilverTrader_DataJson()
-	{
-		m_itemList = new array<ref SilverTrader_ItemEntry>;
-	}
+class SilverTrader_DataJsonLegacy
+{
+	ref array<ref SilverTrader_ItemEntry> m_itemList;
 };
 
 class SilverTrader_ItemEntry
@@ -483,46 +787,54 @@ class SilverTrader_ItemEntry
 // Basis-Trader-Info Klasse (für Client/Server)
 class SilverTrader_Info
 {
-	int m_traderId;
+	int m_traderId = -1;
 	vector m_position;
-	ref array<string> m_buyFilter;
-	ref array<string> m_sellFilter;
-	ref array<ref SilverCommissionOverride> m_commissionOverrides; // Item-spezifische Commission
-	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers; // Trader-spezifische Kategorie-Multiplikatoren (optional)
-	int m_storageMaxSize;
-	float m_storageCommission;
-	string m_dumpingByAmountAlgorithm;
-	float m_dumpingByAmountModifier;
-	float m_dumpingByBadQuality;
-	float m_sellMaxQuantityPercent;
-	float m_buyMaxQuantityPercent;
+	ref array<string> m_buyFilter = new array<string>;
+	ref array<string> m_sellFilter = new array<string>;
+	ref map<string, float> m_commissionOverrides = new map<string, float>; // Item-spezifische Commission
+	ref map<string, float> m_categoryValueMultipliers = new map<string, float>; // Trader-spezifische Kategorie-Multiplikatoren (optional)
+	int m_storageMaxSize = 5000;
+	float m_storageCommission = 0.65;
+	string m_dumpingByAmountAlgorithm = "linear";
+	float m_dumpingByAmountModifier = 0.65;
+	float m_dumpingByBadQuality = 0.5;
+	float m_sellMaxQuantityPercent = 0.8;
+	float m_buyMaxQuantityPercent = 0.9;
 
 	// Ermittelt Commission fuer ein Item (Override oder Fallback)
 	float GetCommissionForItem(string classname)
 	{
 		if (m_commissionOverrides)
 		{
-			// Exakte Klasse pruefen (case-insensitive)
+			float exactCommission;
+			if (m_commissionOverrides.Find(classname, exactCommission))
+				return exactCommission;
+
 			string classnameLower = classname;
 			classnameLower.ToLower();
-			foreach (SilverCommissionOverride commOverride : m_commissionOverrides)
+			foreach (string overrideClassname, float overrideCommission : m_commissionOverrides)
 			{
-				string overrideLower = commOverride.classname;
+				string overrideLower = overrideClassname;
 				overrideLower.ToLower();
-				if (commOverride && overrideLower == classnameLower)
-				{
-					return commOverride.commission;
-				}
+				if (overrideLower == classnameLower)
+					return overrideCommission;
 			}
 
-			// Parent-Klasse pruefen (fuer Vererbung wie "Goldnugget_Base")
-			foreach (SilverCommissionOverride parentOverride : m_commissionOverrides)
+			string bestParentClassname;
+			float bestParentCommission;
+			foreach (string parentClassname, float parentCommission : m_commissionOverrides)
 			{
-				if (parentOverride && g_Game.IsKindOf(classname, parentOverride.classname))
+				if (g_Game.IsKindOf(classname, parentClassname))
 				{
-					return parentOverride.commission;
+					if (bestParentClassname == "" || g_Game.IsKindOf(parentClassname, bestParentClassname))
+					{
+						bestParentClassname = parentClassname;
+						bestParentCommission = parentCommission;
+					}
 				}
 			}
+			if (bestParentClassname != "")
+				return bestParentCommission;
 		}
 
 		// Fallback auf Standard-Commission
@@ -535,6 +847,15 @@ class SilverTrader_Info
 		if (m_traderId < 0)
 			return false;
 
+		if (!m_buyFilter)
+			m_buyFilter = new array<string>;
+		if (!m_sellFilter)
+			m_sellFilter = new array<string>;
+		if (!m_commissionOverrides)
+			m_commissionOverrides = new map<string, float>;
+		if (!m_categoryValueMultipliers)
+			m_categoryValueMultipliers = new map<string, float>;
+
 		if (m_storageMaxSize <= 0)
 			m_storageMaxSize = 5000;
 
@@ -546,13 +867,23 @@ class SilverTrader_Info
 
 		if (m_commissionOverrides)
 		{
-			foreach (SilverCommissionOverride commissionOverride : m_commissionOverrides)
+			for (int commissionIndex = 0; commissionIndex < m_commissionOverrides.Count(); commissionIndex++)
 			{
-				if (!commissionOverride)
-					continue;
-				commissionOverride.commission = Math.Clamp(commissionOverride.commission, 0, 1);
+				string commissionClassname = m_commissionOverrides.GetKey(commissionIndex);
+				float commissionValue = m_commissionOverrides.GetElement(commissionIndex);
+				m_commissionOverrides.Set(commissionClassname, Math.Clamp(commissionValue, 0, 1));
 			}
 		}
+
+		map<string, float> normalizedMultipliers = new map<string, float>;
+		foreach (string multiplierCategory, float multiplierValue : m_categoryValueMultipliers)
+		{
+			string normalizedCategory = multiplierCategory;
+			normalizedCategory.ToLower();
+			if (normalizedCategory != "" && multiplierValue > 0)
+				normalizedMultipliers.Set(normalizedCategory, multiplierValue);
+		}
+		m_categoryValueMultipliers = normalizedMultipliers;
 
 		return true;
 	}
@@ -584,13 +915,13 @@ class SilverTrader_PoolItem
 class SilverRotatingTrader_Config : SilverTrader_Info
 {
 	string m_classname;
-	ref array<string> m_attachments;
-	ref array<string> m_spawnPositions;                        // Mehrere Spawn-Positionen (zufaellig bei Restart)
+	ref array<string> m_attachments = new array<string>;
+	ref array<string> m_spawnPositions = new array<string>;                        // Mehrere Spawn-Positionen (zufaellig bei Restart)
 	float m_orientation;
-	int m_rotationIntervalMinutes;                        // Rotationsintervall in Minuten
-	int m_activeSlots;                                    // Wie viele Items pro Rotation aktiv
-	ref array<ref SilverTrader_PoolItem> m_poolItems;     // Gesamtkatalog
-	bool m_enableZenMapMarker;                            // ZenMap Marker auf Karte anzeigen
+	int m_rotationIntervalMinutes = 60;                        // Rotationsintervall in Minuten
+	int m_activeSlots = 5;                                    // Wie viele Items pro Rotation aktiv
+	ref array<ref SilverTrader_PoolItem> m_poolItems = new array<ref SilverTrader_PoolItem>;     // Gesamtkatalog
+	bool m_enableZenMapMarker = false;                            // ZenMap Marker auf Karte anzeigen
 	string m_zenMapMarkerName;                            // Name des Markers auf der Karte
 	string m_zenMapMarkerIcon;                            // Icon-Pfad (leer = Standard)
 
@@ -601,6 +932,13 @@ class SilverRotatingTrader_Config : SilverTrader_Info
 
 		if (m_classname == "")
 			return false;
+
+		if (!m_attachments)
+			m_attachments = new array<string>;
+		if (!m_spawnPositions)
+			m_spawnPositions = new array<string>;
+		if (!m_poolItems)
+			m_poolItems = new array<ref SilverTrader_PoolItem>;
 
 		if (m_rotationIntervalMinutes <= 0)
 			m_rotationIntervalMinutes = 60;
@@ -616,9 +954,9 @@ class SilverRotatingTrader_Config : SilverTrader_Info
 class SilverTrader_ServerConfig : SilverTrader_Info
 {
 	string m_classname;
-	ref array<string> m_attachments;
-	ref array<ref SilverTrader_ItemEntry> m_defaultItems; // Start-Items fuer Trader
-	ref array<ref SilverTrader_LimitedItem> m_limitedItems; // Bei Restart auf fixen Wert setzen
+	ref array<string> m_attachments = new array<string>;
+	ref map<string, float> m_defaultItems = new map<string, float>; // Start-Items fuer Trader
+	ref map<string, int> m_limitedItems = new map<string, int>; // Bei Restart auf fixen Wert setzen
 	float m_orientation;
 
 	override bool ValidateAndNormalize()
@@ -629,8 +967,72 @@ class SilverTrader_ServerConfig : SilverTrader_Info
 		if (m_classname == "")
 			return false;
 
+		if (!m_attachments)
+			m_attachments = new array<string>;
+		if (!m_defaultItems)
+			m_defaultItems = new map<string, float>;
+		if (!m_limitedItems)
+			m_limitedItems = new map<string, int>;
+
 		return true;
 	}
+};
+
+// Nur fuer die einmalige Migration der bisherigen Array-Konfigurationen.
+class SilverTraderLegacyInfo
+{
+	int m_traderId;
+	vector m_position;
+	ref array<string> m_buyFilter;
+	ref array<string> m_sellFilter;
+	ref array<ref SilverCommissionOverride> m_commissionOverrides;
+	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers;
+	int m_storageMaxSize;
+	float m_storageCommission;
+	string m_dumpingByAmountAlgorithm;
+	float m_dumpingByAmountModifier;
+	float m_dumpingByBadQuality;
+	float m_sellMaxQuantityPercent;
+	float m_buyMaxQuantityPercent;
+};
+
+class SilverTraderLegacyConfig : SilverTraderLegacyInfo
+{
+	string m_classname;
+	ref array<string> m_attachments;
+	ref array<ref SilverTrader_ItemEntry> m_defaultItems;
+	ref array<ref SilverTrader_LimitedItem> m_limitedItems;
+	float m_orientation;
+};
+
+class SilverRotatingTraderLegacyConfig : SilverTraderLegacyInfo
+{
+	string m_classname;
+	ref array<string> m_attachments;
+	ref array<string> m_spawnPositions;
+	float m_orientation;
+	int m_rotationIntervalMinutes;
+	int m_activeSlots;
+	ref array<ref SilverTrader_PoolItem> m_poolItems;
+	bool m_enableZenMapMarker;
+	string m_zenMapMarkerName;
+	string m_zenMapMarkerIcon;
+};
+
+class SilverBarterLegacyConfig
+{
+	string CONFIG_VERSION;
+	bool m_debugMode;
+	bool m_zenSkillsXPEnabled = true;
+	ref array<string> m_quantityPriceClassnames;
+	ref array<ref SilverCategoryValueMultiplier> m_categoryValueMultipliers;
+	ref array<ref SilverTraderLegacyConfig> m_traders;
+};
+
+class SilverRotatingTradersLegacyConfig
+{
+	string CONFIG_VERSION;
+	ref array<ref SilverRotatingTraderLegacyConfig> m_rotatingTraders;
 };
 
 // Separate Config fuer rotierende Haendler
@@ -638,9 +1040,9 @@ class SilverRotatingTradersConfig
 {
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterRotatingTraders.json";
-	private const static string CURRENT_VERSION = "1";
+	private const static string CURRENT_VERSION = "2";
 
-	string CONFIG_VERSION;
+	string CONFIG_VERSION = CURRENT_VERSION;
 	ref array<ref SilverRotatingTrader_Config> m_rotatingTraders;
 
 	void SilverRotatingTradersConfig()
@@ -663,8 +1065,61 @@ class SilverRotatingTradersConfig
 		if (FileExist(path))
 		{
 			Print("[SilverBarter] Loading rotating traders config: " + path);
-			JsonFileLoader<SilverRotatingTradersConfig>.JsonLoadFile(path, this);
-			Print("[SilverBarter] Rotating traders config load finished. If there are JSON errors above, fix the file manually.");
+			bool configChanged = false;
+			SilverRotatingTradersLegacyConfig legacyConfig = new SilverRotatingTradersLegacyConfig();
+			string legacyError;
+			bool loadedLegacy = JsonFileLoader<SilverRotatingTradersLegacyConfig>.LoadFile(path, legacyConfig, legacyError);
+			if (loadedLegacy && legacyConfig.CONFIG_VERSION == "1")
+			{
+				if (!CreateMigrationBackup(path))
+					return;
+				MigrateLegacy(legacyConfig);
+				configChanged = true;
+				Print("[SilverBarter] Rotating traders config migrated from array format to map format.");
+			}
+			else
+			{
+				SilverRotatingTradersConfig loadedConfig = new SilverRotatingTradersConfig();
+				loadedConfig.CONFIG_VERSION = "";
+				loadedConfig.m_rotatingTraders = null;
+				string loadError;
+				if (!JsonFileLoader<SilverRotatingTradersConfig>.LoadFile(path, loadedConfig, loadError))
+				{
+					Print("[SilverBarter] ERROR: Rotating traders config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
+					return;
+				}
+				if (loadedConfig.CONFIG_VERSION != "" && loadedConfig.CONFIG_VERSION != CURRENT_VERSION)
+				{
+					Print("[SilverBarter] ERROR: Unsupported rotating traders config version, file preserved: " + loadedConfig.CONFIG_VERSION);
+					return;
+				}
+				if (loadedConfig.CONFIG_VERSION == "")
+					configChanged = true;
+				CONFIG_VERSION = loadedConfig.CONFIG_VERSION;
+				m_rotatingTraders = loadedConfig.m_rotatingTraders;
+				loadedConfig.m_rotatingTraders = null;
+			}
+
+			if (!m_rotatingTraders)
+			{
+				m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
+				configChanged = true;
+			}
+			foreach (SilverRotatingTrader_Config rotatingTrader : m_rotatingTraders)
+			{
+				if (rotatingTrader)
+					rotatingTrader.ValidateAndNormalize();
+			}
+			CONFIG_VERSION = CURRENT_VERSION;
+			if (configChanged)
+			{
+				Save();
+				Print("[SilverBarter] Rotating traders config load and update finished.");
+			}
+			else
+			{
+				Print("[SilverBarter] Rotating traders config load finished, no update required.");
+			}
 		}
 		else
 		{
@@ -685,12 +1140,83 @@ class SilverRotatingTradersConfig
 			MakeDirectory(MOD_FOLDER);
 		}
 
-		JsonFileLoader<SilverRotatingTradersConfig>.JsonSaveFile(MOD_FOLDER + CONFIG_NAME, this);
+		string saveError;
+		if (!JsonFileLoader<SilverRotatingTradersConfig>.SaveFile(MOD_FOLDER + CONFIG_NAME, this, saveError))
+			Print("[SilverBarter] ERROR: Rotating traders config could not be saved: " + SilverBarterSanitizeJsonError(saveError));
 	}
 
-	private void Migrate()
+	private void MigrateLegacy(SilverRotatingTradersLegacyConfig legacyConfig)
 	{
-		// Keine Migrationen aktuell noetig
+		m_rotatingTraders = new array<ref SilverRotatingTrader_Config>;
+		if (!legacyConfig.m_rotatingTraders)
+			return;
+
+		foreach (SilverRotatingTraderLegacyConfig legacyTrader : legacyConfig.m_rotatingTraders)
+		{
+			if (!legacyTrader)
+				continue;
+
+			SilverRotatingTrader_Config trader = new SilverRotatingTrader_Config();
+			trader.m_traderId = legacyTrader.m_traderId;
+			trader.m_position = legacyTrader.m_position;
+			trader.m_storageMaxSize = legacyTrader.m_storageMaxSize;
+			trader.m_storageCommission = legacyTrader.m_storageCommission;
+			trader.m_dumpingByAmountAlgorithm = legacyTrader.m_dumpingByAmountAlgorithm;
+			trader.m_dumpingByAmountModifier = legacyTrader.m_dumpingByAmountModifier;
+			trader.m_dumpingByBadQuality = legacyTrader.m_dumpingByBadQuality;
+			trader.m_sellMaxQuantityPercent = legacyTrader.m_sellMaxQuantityPercent;
+			trader.m_buyMaxQuantityPercent = legacyTrader.m_buyMaxQuantityPercent;
+			trader.m_classname = legacyTrader.m_classname;
+			trader.m_orientation = legacyTrader.m_orientation;
+			trader.m_rotationIntervalMinutes = legacyTrader.m_rotationIntervalMinutes;
+			trader.m_activeSlots = legacyTrader.m_activeSlots;
+			trader.m_enableZenMapMarker = legacyTrader.m_enableZenMapMarker;
+			trader.m_zenMapMarkerName = legacyTrader.m_zenMapMarkerName;
+			trader.m_zenMapMarkerIcon = legacyTrader.m_zenMapMarkerIcon;
+			trader.m_buyFilter = legacyTrader.m_buyFilter;
+			trader.m_sellFilter = legacyTrader.m_sellFilter;
+			trader.m_attachments = legacyTrader.m_attachments;
+			trader.m_spawnPositions = legacyTrader.m_spawnPositions;
+			trader.m_poolItems = legacyTrader.m_poolItems;
+			legacyTrader.m_buyFilter = null;
+			legacyTrader.m_sellFilter = null;
+			legacyTrader.m_attachments = null;
+			legacyTrader.m_spawnPositions = null;
+			legacyTrader.m_poolItems = null;
+
+			trader.m_commissionOverrides = new map<string, float>;
+			if (legacyTrader.m_commissionOverrides)
+			{
+				foreach (SilverCommissionOverride commissionEntry : legacyTrader.m_commissionOverrides)
+				{
+					if (commissionEntry && commissionEntry.classname != "")
+						trader.m_commissionOverrides.Set(commissionEntry.classname, commissionEntry.commission);
+				}
+			}
+
+			trader.m_categoryValueMultipliers = new map<string, float>;
+			if (legacyTrader.m_categoryValueMultipliers)
+			{
+				foreach (SilverCategoryValueMultiplier multiplierEntry : legacyTrader.m_categoryValueMultipliers)
+				{
+					if (multiplierEntry && multiplierEntry.category != "")
+						trader.m_categoryValueMultipliers.Set(multiplierEntry.category, multiplierEntry.multiplier);
+				}
+			}
+
+			m_rotatingTraders.Insert(trader);
+		}
+	}
+
+	private bool CreateMigrationBackup(string path)
+	{
+		string backupPath = path + ".v1.bak";
+		if (!FileExist(backupPath) && !CopyFile(path, backupPath))
+		{
+			Print("[SilverBarter] WARNING: Could not create rotating config migration backup: " + backupPath);
+			return false;
+		}
+		return true;
 	}
 
 	void SetDefaultValues()
@@ -781,7 +1307,7 @@ class SilverRotatingTradersConfig
 		rotatingTrader.m_sellFilter.Insert("!bl_improvised_sewing_kit");
 		rotatingTrader.m_sellFilter.Insert("!Single_Match");
 
-		rotatingTrader.m_commissionOverrides = new array<ref SilverCommissionOverride>;
+		rotatingTrader.m_commissionOverrides = new map<string, float>;
 
 		rotatingTrader.m_attachments = new array<string>;
 		rotatingTrader.m_attachments.Insert("WoolCoat_Black");
@@ -1076,9 +1602,9 @@ class SilverCategoryOverridesConfig
 	private const static string CONFIG_NAME = "SilverBarterCategoryOverrides.json";
 	private const static string CURRENT_VERSION = "1";
 
-	string CONFIG_VERSION;
-	bool m_enabled;
-	ref array<ref SilverCategoryOverride> m_categoryOverrides;
+	string CONFIG_VERSION = CURRENT_VERSION;
+	bool m_enabled = false;
+	ref array<ref SilverCategoryOverride> m_categoryOverrides = new array<ref SilverCategoryOverride>;
 
 	void SilverCategoryOverridesConfig()
 	{
@@ -1100,8 +1626,40 @@ class SilverCategoryOverridesConfig
 		if (FileExist(path))
 		{
 			Print("[SilverBarter] Loading category overrides config: " + path);
-			JsonFileLoader<SilverCategoryOverridesConfig>.JsonLoadFile(path, this);
-			Print("[SilverBarter] Category overrides config load finished. If there are JSON errors above, fix the file manually.");
+			SilverCategoryOverridesConfig loadedConfig = new SilverCategoryOverridesConfig();
+			loadedConfig.CONFIG_VERSION = "";
+			loadedConfig.m_categoryOverrides = null;
+			string loadError;
+			if (!JsonFileLoader<SilverCategoryOverridesConfig>.LoadFile(path, loadedConfig, loadError))
+			{
+				Print("[SilverBarter] ERROR: Category overrides config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
+				return;
+			}
+			if (loadedConfig.CONFIG_VERSION != "" && loadedConfig.CONFIG_VERSION != CURRENT_VERSION)
+			{
+				Print("[SilverBarter] ERROR: Unsupported category overrides config version, file preserved: " + loadedConfig.CONFIG_VERSION);
+				return;
+			}
+			bool configChanged = loadedConfig.CONFIG_VERSION == "";
+			CONFIG_VERSION = loadedConfig.CONFIG_VERSION;
+			m_enabled = loadedConfig.m_enabled;
+			m_categoryOverrides = loadedConfig.m_categoryOverrides;
+			loadedConfig.m_categoryOverrides = null;
+			if (!m_categoryOverrides)
+			{
+				m_categoryOverrides = new array<ref SilverCategoryOverride>;
+				configChanged = true;
+			}
+			CONFIG_VERSION = CURRENT_VERSION;
+			if (configChanged)
+			{
+				Save();
+				Print("[SilverBarter] Category overrides config load and update finished.");
+			}
+			else
+			{
+				Print("[SilverBarter] Category overrides config load finished, no update required.");
+			}
 		}
 		else
 		{
@@ -1122,12 +1680,9 @@ class SilverCategoryOverridesConfig
 			MakeDirectory(MOD_FOLDER);
 		}
 
-		JsonFileLoader<SilverCategoryOverridesConfig>.JsonSaveFile(MOD_FOLDER + CONFIG_NAME, this);
-	}
-
-	private void Migrate()
-	{
-		// Keine Migrationen aktuell noetig
+		string saveError;
+		if (!JsonFileLoader<SilverCategoryOverridesConfig>.SaveFile(MOD_FOLDER + CONFIG_NAME, this, saveError))
+			Print("[SilverBarter] ERROR: Category overrides config could not be saved: " + SilverBarterSanitizeJsonError(saveError));
 	}
 
 	void SetDefaultValues()
