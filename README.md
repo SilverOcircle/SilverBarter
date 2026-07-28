@@ -196,7 +196,7 @@ A trader with 5000 storage can hold more small items than large ones.
 
 Configuration is stored at `$profile:\SilverBarter\SilverBarterConfig.json`
 
-Missing settings are added automatically after a successful load. Version 1 array configs are migrated once to the compact map format; the original file is retained as a `.v1.bak` backup.
+Missing settings are added automatically during version upgrades. Version 1 array configs are migrated once to the compact map format, and version 2 configs are upgraded once to version 3 so newly introduced fields are written with safe defaults. Existing user values are retained; the original files are preserved as `.v1.bak` or `.v2.bak` backups.
 
 ### Global Settings
 

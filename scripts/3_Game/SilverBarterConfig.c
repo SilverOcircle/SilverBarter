@@ -5,13 +5,50 @@ static string SilverBarterSanitizeJsonError(string error)
 	return error;
 }
 
+class SilverBarterConfigVersionProbe
+{
+	string CONFIG_VERSION;
+};
+
+static bool SilverBarterJsonHasKey(string path, string key)
+{
+	FileHandle handle = OpenFile(path, FileMode.READ);
+	if (handle == 0)
+		return false;
+
+	string line;
+	string token = "\"" + key + "\"";
+	while (FGets(handle, line) >= 0)
+	{
+		if (line.IndexOf(token) >= 0)
+		{
+			CloseFile(handle);
+			return true;
+		}
+	}
+
+	CloseFile(handle);
+	return false;
+}
+
+static bool SilverBarterCreateConfigBackup(string path, string suffix)
+{
+	string backupPath = path + suffix;
+	if (!FileExist(backupPath) && !CopyFile(path, backupPath))
+	{
+		Print("[SilverBarter] ERROR: Config backup could not be created: " + backupPath);
+		return false;
+	}
+	return true;
+}
+
 // SilverBarter Haupt-Konfiguration
 class SilverBarterConfig
 {
 	// Config-Pfade
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterConfig.json";
-	private const static string CURRENT_VERSION = "2";
+	private const static string CURRENT_VERSION = "3";
 
 	string CONFIG_VERSION = CURRENT_VERSION;
 
@@ -45,11 +82,23 @@ class SilverBarterConfig
 		{
 			Print("[SilverBarter] Loading config: " + path);
 			bool configChanged = false;
-			SilverBarterLegacyConfig legacyConfig = new SilverBarterLegacyConfig();
-			string legacyError;
-			bool loadedLegacy = JsonFileLoader<SilverBarterLegacyConfig>.LoadFile(path, legacyConfig, legacyError);
-			if (loadedLegacy && legacyConfig.CONFIG_VERSION == "1")
+			SilverBarterConfigVersionProbe versionProbe = new SilverBarterConfigVersionProbe();
+			string versionError;
+			if (!JsonFileLoader<SilverBarterConfigVersionProbe>.LoadFile(path, versionProbe, versionError))
 			{
+				Print("[SilverBarter] ERROR: Config version could not be read, file preserved: " + SilverBarterSanitizeJsonError(versionError));
+				return;
+			}
+
+			if (versionProbe.CONFIG_VERSION == "1")
+			{
+				SilverBarterLegacyConfig legacyConfig = new SilverBarterLegacyConfig();
+				string legacyError;
+				if (!JsonFileLoader<SilverBarterLegacyConfig>.LoadFile(path, legacyConfig, legacyError))
+				{
+					Print("[SilverBarter] ERROR: Legacy config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(legacyError));
+					return;
+				}
 				if (!CreateMigrationBackup(path))
 					return;
 				MigrateLegacy(legacyConfig);
@@ -58,6 +107,12 @@ class SilverBarterConfig
 			}
 			else
 			{
+				if (versionProbe.CONFIG_VERSION != "" && versionProbe.CONFIG_VERSION != "2" && versionProbe.CONFIG_VERSION != CURRENT_VERSION)
+				{
+					Print("[SilverBarter] ERROR: Unsupported config version, file preserved: " + versionProbe.CONFIG_VERSION);
+					return;
+				}
+
 				SilverBarterConfig loadedConfig = new SilverBarterConfig();
 				loadedConfig.CONFIG_VERSION = "";
 				loadedConfig.m_quantityPriceClassnames = null;
@@ -69,12 +124,9 @@ class SilverBarterConfig
 					Print("[SilverBarter] ERROR: Config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
 					return;
 				}
-				if (loadedConfig.CONFIG_VERSION != "" && loadedConfig.CONFIG_VERSION != CURRENT_VERSION)
-				{
-					Print("[SilverBarter] ERROR: Unsupported config version, file preserved: " + loadedConfig.CONFIG_VERSION);
+				if (versionProbe.CONFIG_VERSION == "2" && !SilverBarterCreateConfigBackup(path, ".v2.bak"))
 					return;
-				}
-				if (loadedConfig.CONFIG_VERSION == "")
+				if (versionProbe.CONFIG_VERSION == "" || versionProbe.CONFIG_VERSION == "2")
 					configChanged = true;
 				ApplyLoadedConfig(loadedConfig);
 			}
@@ -651,66 +703,88 @@ class SilverTrader_Data
 		if (!FileExist(path))
 			return false;
 
-		SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
-		jsonData.CONFIG_VERSION = "";
-		jsonData.m_items = null;
 		Print("[SilverBarter] Loading trader data: " + path);
-		string loadError;
-		bool loadedCurrent = JsonFileLoader<SilverTrader_DataJson>.LoadFile(path, jsonData, loadError);
-		if (loadedCurrent && jsonData && jsonData.CONFIG_VERSION != "" && jsonData.CONFIG_VERSION != "2")
+
+		SilverBarterConfigVersionProbe versionProbe = new SilverBarterConfigVersionProbe();
+		string versionError;
+		if (!JsonFileLoader<SilverBarterConfigVersionProbe>.LoadFile(path, versionProbe, versionError))
 		{
-			Print("[SilverBarter] ERROR: Unsupported trader data version, file preserved: " + jsonData.CONFIG_VERSION);
+			Print("[SilverBarter] ERROR: Trader data version could not be read, file preserved: " + SilverBarterSanitizeJsonError(versionError));
 			return false;
 		}
 
+		if (versionProbe.CONFIG_VERSION != "" && versionProbe.CONFIG_VERSION != "2")
+		{
+			Print("[SilverBarter] ERROR: Unsupported trader data version, file preserved: " + versionProbe.CONFIG_VERSION);
+			return false;
+		}
+
+		SilverTrader_DataJson jsonData = new SilverTrader_DataJson();
+		jsonData.CONFIG_VERSION = "";
+		jsonData.m_items = null;
+
 		// m_items erst anfassen wenn jsonData gültig ist
-		bool currentFormat = loadedCurrent && jsonData && jsonData.m_items && jsonData.CONFIG_VERSION == "2";
-		if (!currentFormat)
+		if (versionProbe.CONFIG_VERSION == "2")
+		{
+			string loadError;
+			if (!JsonFileLoader<SilverTrader_DataJson>.LoadFile(path, jsonData, loadError) || !jsonData.m_items)
+			{
+				Print("[SilverBarter] ERROR: Trader data could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
+				return false;
+			}
+		}
+		else if (SilverBarterJsonHasKey(path, "m_itemList"))
 		{
 			SilverTrader_DataJsonLegacy legacyData = new SilverTrader_DataJsonLegacy();
 			string legacyError;
-			bool loadedLegacy = JsonFileLoader<SilverTrader_DataJsonLegacy>.LoadFile(path, legacyData, legacyError);
-			bool legacyHasEntries = loadedLegacy && legacyData && legacyData.m_itemList && legacyData.m_itemList.Count() > 0;
-			bool unversionedMap = loadedCurrent && jsonData && jsonData.m_items && jsonData.CONFIG_VERSION == "";
-
-			if (legacyHasEntries)
+			if (!JsonFileLoader<SilverTrader_DataJsonLegacy>.LoadFile(path, legacyData, legacyError) || !legacyData.m_itemList)
 			{
-				jsonData.CONFIG_VERSION = "2";
-				jsonData.m_items = new map<string, float>;
-				foreach (SilverTrader_ItemEntry legacyEntry : legacyData.m_itemList)
-				{
-					if (legacyEntry && legacyEntry.classname != "" && IsValidClassname(legacyEntry.classname))
-						jsonData.m_items.Set(legacyEntry.classname, legacyEntry.quantity);
-				}
-
-				string backupPath = path + ".v1.bak";
-				if (!FileExist(backupPath) && !CopyFile(path, backupPath))
-				{
-					Print("[SilverBarter] ERROR: Trader data migration backup could not be created: " + backupPath);
-					return false;
-				}
-				if (!SaveMigratedTraderData(path, jsonData))
-					return false;
-				Print("[SilverBarter] Trader data migrated from array format to map format: " + path);
-			}
-			else if (unversionedMap)
-			{
-				jsonData.CONFIG_VERSION = "2";
-				string unversionedBackupPath = path + ".unversioned.bak";
-				if (!FileExist(unversionedBackupPath) && !CopyFile(path, unversionedBackupPath))
-				{
-					Print("[SilverBarter] ERROR: Unversioned trader data backup could not be created: " + unversionedBackupPath);
-					return false;
-				}
-				if (!SaveMigratedTraderData(path, jsonData))
-					return false;
-				Print("[SilverBarter] Unversioned trader data updated to format version 2: " + path);
-			}
-			else
-			{
-				Print("[SilverBarter] WARNING: Trader data parse failed, file preserved: " + path + " | " + SilverBarterSanitizeJsonError(loadError) + " | " + SilverBarterSanitizeJsonError(legacyError));
+				Print("[SilverBarter] ERROR: Legacy trader data could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(legacyError));
 				return false;
 			}
+
+			jsonData.CONFIG_VERSION = "2";
+			jsonData.m_items = new map<string, float>;
+			foreach (SilverTrader_ItemEntry legacyEntry : legacyData.m_itemList)
+			{
+				if (legacyEntry && legacyEntry.classname != "" && IsValidClassname(legacyEntry.classname))
+					jsonData.m_items.Set(legacyEntry.classname, legacyEntry.quantity);
+			}
+
+			string backupPath = path + ".v1.bak";
+			if (!FileExist(backupPath) && !CopyFile(path, backupPath))
+			{
+				Print("[SilverBarter] ERROR: Trader data migration backup could not be created: " + backupPath);
+				return false;
+			}
+			if (!SaveMigratedTraderData(path, jsonData))
+				return false;
+			Print("[SilverBarter] Trader data migrated from array format to map format: " + path);
+		}
+		else if (SilverBarterJsonHasKey(path, "m_items"))
+		{
+			string unversionedError;
+			if (!JsonFileLoader<SilverTrader_DataJson>.LoadFile(path, jsonData, unversionedError) || !jsonData.m_items)
+			{
+				Print("[SilverBarter] ERROR: Unversioned trader data could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(unversionedError));
+				return false;
+			}
+
+			jsonData.CONFIG_VERSION = "2";
+			string unversionedBackupPath = path + ".unversioned.bak";
+			if (!FileExist(unversionedBackupPath) && !CopyFile(path, unversionedBackupPath))
+			{
+				Print("[SilverBarter] ERROR: Unversioned trader data backup could not be created: " + unversionedBackupPath);
+				return false;
+			}
+			if (!SaveMigratedTraderData(path, jsonData))
+				return false;
+			Print("[SilverBarter] Unversioned trader data updated to format version 2: " + path);
+		}
+		else
+		{
+			Print("[SilverBarter] ERROR: Unknown trader data format, file preserved: " + path);
+			return false;
 		}
 
 		if (!m_items)
@@ -1040,7 +1114,7 @@ class SilverRotatingTradersConfig
 {
 	private const static string MOD_FOLDER = "$profile:\\SilverBarter\\";
 	private const static string CONFIG_NAME = "SilverBarterRotatingTraders.json";
-	private const static string CURRENT_VERSION = "2";
+	private const static string CURRENT_VERSION = "3";
 
 	string CONFIG_VERSION = CURRENT_VERSION;
 	ref array<ref SilverRotatingTrader_Config> m_rotatingTraders;
@@ -1066,11 +1140,23 @@ class SilverRotatingTradersConfig
 		{
 			Print("[SilverBarter] Loading rotating traders config: " + path);
 			bool configChanged = false;
-			SilverRotatingTradersLegacyConfig legacyConfig = new SilverRotatingTradersLegacyConfig();
-			string legacyError;
-			bool loadedLegacy = JsonFileLoader<SilverRotatingTradersLegacyConfig>.LoadFile(path, legacyConfig, legacyError);
-			if (loadedLegacy && legacyConfig.CONFIG_VERSION == "1")
+			SilverBarterConfigVersionProbe versionProbe = new SilverBarterConfigVersionProbe();
+			string versionError;
+			if (!JsonFileLoader<SilverBarterConfigVersionProbe>.LoadFile(path, versionProbe, versionError))
 			{
+				Print("[SilverBarter] ERROR: Rotating traders config version could not be read, file preserved: " + SilverBarterSanitizeJsonError(versionError));
+				return;
+			}
+
+			if (versionProbe.CONFIG_VERSION == "1")
+			{
+				SilverRotatingTradersLegacyConfig legacyConfig = new SilverRotatingTradersLegacyConfig();
+				string legacyError;
+				if (!JsonFileLoader<SilverRotatingTradersLegacyConfig>.LoadFile(path, legacyConfig, legacyError))
+				{
+					Print("[SilverBarter] ERROR: Legacy rotating traders config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(legacyError));
+					return;
+				}
 				if (!CreateMigrationBackup(path))
 					return;
 				MigrateLegacy(legacyConfig);
@@ -1079,6 +1165,12 @@ class SilverRotatingTradersConfig
 			}
 			else
 			{
+				if (versionProbe.CONFIG_VERSION != "" && versionProbe.CONFIG_VERSION != "2" && versionProbe.CONFIG_VERSION != CURRENT_VERSION)
+				{
+					Print("[SilverBarter] ERROR: Unsupported rotating traders config version, file preserved: " + versionProbe.CONFIG_VERSION);
+					return;
+				}
+
 				SilverRotatingTradersConfig loadedConfig = new SilverRotatingTradersConfig();
 				loadedConfig.CONFIG_VERSION = "";
 				loadedConfig.m_rotatingTraders = null;
@@ -1088,12 +1180,9 @@ class SilverRotatingTradersConfig
 					Print("[SilverBarter] ERROR: Rotating traders config could not be loaded, file preserved: " + SilverBarterSanitizeJsonError(loadError));
 					return;
 				}
-				if (loadedConfig.CONFIG_VERSION != "" && loadedConfig.CONFIG_VERSION != CURRENT_VERSION)
-				{
-					Print("[SilverBarter] ERROR: Unsupported rotating traders config version, file preserved: " + loadedConfig.CONFIG_VERSION);
+				if (versionProbe.CONFIG_VERSION == "2" && !SilverBarterCreateConfigBackup(path, ".v2.bak"))
 					return;
-				}
-				if (loadedConfig.CONFIG_VERSION == "")
+				if (versionProbe.CONFIG_VERSION == "" || versionProbe.CONFIG_VERSION == "2")
 					configChanged = true;
 				CONFIG_VERSION = loadedConfig.CONFIG_VERSION;
 				m_rotatingTraders = loadedConfig.m_rotatingTraders;
