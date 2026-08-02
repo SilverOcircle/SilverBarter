@@ -133,7 +133,7 @@ class PluginSilverTrader extends PluginBase
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_DELIVERY_COMPLETE, this, "RpcHandleDeliveryComplete");
 
 		// Server-Initialisierung
-		if (g_Game.IsDedicatedServer())
+		if (g_Game && g_Game.IsDedicatedServer())
 		{
 			m_SilverBarter_TraderPoints = new map<int, TraderPoint>;
 			m_SilverBarter_TraderCache = new map<int, SilverTrader_ServerConfig>;
@@ -172,7 +172,7 @@ class PluginSilverTrader extends PluginBase
 	// Client: RPC empfangen - Menu oeffnen
 	void RpcRequestOpen(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (g_Game.IsDedicatedServer())
+		if (!g_Game || g_Game.IsDedicatedServer())
 			return;
 
 		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
@@ -330,7 +330,7 @@ class PluginSilverTrader extends PluginBase
 	void RpcHandleTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
 	{
 		// Server-Handler
-		if (g_Game.IsDedicatedServer())
+		if (g_Game && g_Game.IsDedicatedServer())
 		{
 			RpcRequestTraderAction(ctx, sender);
 			return;
@@ -374,7 +374,7 @@ class PluginSilverTrader extends PluginBase
 	// mit kleinem Sync-Puffer refreshen (siehe ScheduleSellRefresh).
 	void RpcHandleDeliveryComplete(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (g_Game.IsDedicatedServer())
+		if (!g_Game || g_Game.IsDedicatedServer())
 			return;
 
 		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
@@ -808,7 +808,7 @@ class PluginSilverTrader extends PluginBase
 	// Client: Empfaengt neues Rotating-Trader Inventar nach Rotation
 	void RpcRotatingTraderSync(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (g_Game.IsDedicatedServer())
+		if (!g_Game || g_Game.IsDedicatedServer())
 			return;
 
 		int traderId;
