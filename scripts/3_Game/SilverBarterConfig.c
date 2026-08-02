@@ -68,8 +68,7 @@ class SilverBarterConfig
 
 	void Load()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -347,8 +346,7 @@ class SilverBarterConfig
 
 	void Save()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -1126,8 +1124,7 @@ class SilverRotatingTradersConfig
 
 	void Load()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -1220,8 +1217,7 @@ class SilverRotatingTradersConfig
 
 	void Save()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -1702,8 +1698,7 @@ class SilverCategoryOverridesConfig
 
 	void Load()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -1760,8 +1755,7 @@ class SilverCategoryOverridesConfig
 
 	void Save()
 	{
-		CGame game = GetGame();
-		if (!game || !game.IsDedicatedServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!FileExist(MOD_FOLDER))
@@ -1800,40 +1794,60 @@ class SilverCategoryOverridesConfig
 	}
 };
 
-// Globaler Config-Accessor
-static ref SilverBarterConfig g_SilverBarterConfig;
-static ref SilverRotatingTradersConfig g_SilverRotatingTradersConfig;
-static ref SilverCategoryOverridesConfig g_SilverCategoryOverridesConfig;
+class SilverBarterConfigService
+{
+	private static ref SilverBarterConfig s_Config;
+	private static ref SilverRotatingTradersConfig s_RotatingConfig;
+	private static ref SilverCategoryOverridesConfig s_CategoryOverridesConfig;
 
+	static SilverBarterConfig GetConfig()
+	{
+		if (!s_Config)
+		{
+			Print("[SilverBarter] Initializing config...");
+			s_Config = new SilverBarterConfig();
+			s_Config.Load();
+		}
+		return s_Config;
+	}
+
+	static SilverRotatingTradersConfig GetRotatingConfig()
+	{
+		if (!s_RotatingConfig)
+		{
+			Print("[SilverBarter] Initializing rotating traders config...");
+			s_RotatingConfig = new SilverRotatingTradersConfig();
+			s_RotatingConfig.Load();
+		}
+		return s_RotatingConfig;
+	}
+
+	static SilverCategoryOverridesConfig GetCategoryOverridesConfig()
+	{
+		if (!s_CategoryOverridesConfig)
+		{
+			Print("[SilverBarter] Initializing category overrides config...");
+			s_CategoryOverridesConfig = new SilverCategoryOverridesConfig();
+			s_CategoryOverridesConfig.Load();
+		}
+		return s_CategoryOverridesConfig;
+	}
+};
+
+[Obsolete()]
 static SilverBarterConfig GetSilverBarterConfig()
 {
-	if (!g_SilverBarterConfig)
-	{
-		Print("[SilverBarter] Initializing config...");
-		g_SilverBarterConfig = new SilverBarterConfig();
-		g_SilverBarterConfig.Load();
-	}
-	return g_SilverBarterConfig;
+	return SilverBarterConfigService.GetConfig();
 }
 
+[Obsolete()]
 static SilverRotatingTradersConfig GetSilverRotatingTradersConfig()
 {
-	if (!g_SilverRotatingTradersConfig)
-	{
-		Print("[SilverBarter] Initializing rotating traders config...");
-		g_SilverRotatingTradersConfig = new SilverRotatingTradersConfig();
-		g_SilverRotatingTradersConfig.Load();
-	}
-	return g_SilverRotatingTradersConfig;
+	return SilverBarterConfigService.GetRotatingConfig();
 }
 
+[Obsolete()]
 static SilverCategoryOverridesConfig GetSilverCategoryOverridesConfig()
 {
-	if (!g_SilverCategoryOverridesConfig)
-	{
-		Print("[SilverBarter] Initializing category overrides config...");
-		g_SilverCategoryOverridesConfig = new SilverCategoryOverridesConfig();
-		g_SilverCategoryOverridesConfig.Load();
-	}
-	return g_SilverCategoryOverridesConfig;
+	return SilverBarterConfigService.GetCategoryOverridesConfig();
 }

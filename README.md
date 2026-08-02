@@ -108,7 +108,7 @@ The quantities a player selects to buy are remembered while the trader menu is o
 
 ### Trader Menu UI (Experimental Redesign)
 
-A reworked, more modern trader menu layout (SDF fonts, a single centered window panel, a search box) exists under `layout/test/` alongside the original `layout/` files. It is currently switched on by a debug flag (`DEBUG_USE_TEST_LAYOUT` in `SilverTraderMenu.c`) and **has not yet been verified in-game**. Set that flag to `false` to fall back to the original, verified layout if you run into UI issues.
+A reworked, more modern trader menu layout (SDF fonts, a single centered window panel, a search box) exists under `layout/test/` alongside the original `layout/` files. It is disabled by default through `DEBUG_USE_TEST_LAYOUT` in `SilverTraderMenu.c`, so production builds use the verified layout.
 
 ---
 

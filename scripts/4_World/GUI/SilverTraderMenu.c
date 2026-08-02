@@ -14,98 +14,98 @@ class SilverTraderMenu extends UIScriptedMenu
 	// Test-Layout unter layout/test/ statt der normalen Layouts laden - vor Release wieder auf false
 	const bool DEBUG_USE_TEST_LAYOUT = true;
 
-	bool m_active = false;
-	bool m_dirty = false;
+	bool m_SilverBarter_Active = false;
+	bool m_SilverBarter_Dirty = false;
 
-	int m_traderId;
-	bool m_isRotatingTrader;
-	ref SilverTrader_Info m_traderInfo;
-	ref SilverTrader_Data m_traderData;
+	int m_SilverBarter_TraderId;
+	bool m_SilverBarter_IsRotatingTrader;
+	ref SilverTrader_Info m_SilverBarter_TraderInfo;
+	ref SilverTrader_Data m_SilverBarter_TraderData;
 
-	ref ScrollWidget m_sellItemsPanel;
-	ref ScrollWidget m_buyItemsPanel;
+	ref ScrollWidget m_SilverBarter_SellItemsPanel;
+	ref ScrollWidget m_SilverBarter_BuyItemsPanel;
 
-	ref SimpleProgressBarWidget m_progressPositive;
-	ref SimpleProgressBarWidget m_progressNegative;
+	ref SimpleProgressBarWidget m_SilverBarter_ProgressPositive;
+	ref SimpleProgressBarWidget m_SilverBarter_ProgressNegative;
 
-	ref ButtonWidget m_barterBtn;
-	ref MultilineTextWidget m_tradeButtonInfo;
+	ref ButtonWidget m_SilverBarter_BarterButton;
+	ref MultilineTextWidget m_SilverBarter_TradeButtonInfo;
 
-	ref array<ref Widget> m_sellWidgetsCache;
-	ref array<ref Widget> m_buyWidgetsCache;
-	ref array<ref SilverTraderMenu_BuyData> m_buyData;
+	ref array<ref Widget> m_SilverBarter_SellWidgetsCache;
+	ref array<ref Widget> m_SilverBarter_BuyWidgetsCache;
+	ref array<ref SilverTraderMenuBuyData> m_SilverBarter_BuyData;
 
-	ref EditBoxWidget m_buySearchBox;
-	ref EditBoxWidget m_sellSearchBox;
-	string m_buySearchText = "";
-	string m_sellSearchText = "";
+	ref EditBoxWidget m_SilverBarter_BuySearchBox;
+	ref EditBoxWidget m_SilverBarter_SellSearchBox;
+	string m_SilverBarter_BuySearchText = "";
+	string m_SilverBarter_SellSearchText = "";
 	// Debounce fuer Sell-Suche - rekursiver Inventar-Rebuild ist teurer als der Buy-Rebuild
-	float m_pendingSellSearchTimer = -1;
-	// Debounce fuer Buy-Suche - vermeidet Sort() ueber m_traderData.m_items bei jedem Tastendruck
-	float m_pendingBuySearchTimer = -1;
+	float m_SilverBarter_PendingSellSearchTimer = -1;
+	// Debounce fuer Buy-Suche - vermeidet Sort() ueber m_SilverBarter_TraderData.m_items bei jedem Tastendruck
+	float m_SilverBarter_PendingBuySearchTimer = -1;
 
 	// Persistente Kauf-Auswahl (Classname -> gewaehlte Menge), uebersteht Filter-Toggles und Rebuilds
-	ref map<string, float> m_buySelectedQuantities;
+	ref map<string, float> m_SilverBarter_BuySelectedQuantities;
 
 	// Lazy-Preview: Pool (classname→Entity) + aktive Zuordnung (index→Entity)
-	ref map<string, EntityAI> m_previewPool;
-	ref map<int, EntityAI> m_previewByIndex;
-	float m_buyRowHeight = 0;
-	float m_buyPanelHeight = 0;
-	float m_lastScrollPos01 = -1;
+	ref map<string, EntityAI> m_SilverBarter_PreviewPool;
+	ref map<int, EntityAI> m_SilverBarter_PreviewByIndex;
+	float m_SilverBarter_BuyRowHeight = 0;
+	float m_SilverBarter_BuyPanelHeight = 0;
+	float m_SilverBarter_LastScrollPos01 = -1;
 
-	ref array<string> m_filterData;
-	static ref array<bool> m_filterMemory;
+	ref array<string> m_SilverBarter_FilterData;
+	static ref array<bool> s_SilverBarter_FilterMemory;
 
-	ref map<string, string> m_dnCache;
+	ref map<string, string> m_SilverBarter_DisplayNameCache;
 
-	float m_currentBarterProgress = 0;
-	bool m_blockBarter = true;
+	float m_SilverBarter_CurrentBarterProgress = 0;
+	bool m_SilverBarter_BlockBarter = true;
 
 	// Einmaliger verzoegerter Sell-Rebuild nach Trade-Erfolg, bis frisch gespawnte Items ihre echte Menge repliziert haben
-	float m_pendingSellRefreshTimer = -1;
+	float m_SilverBarter_PendingSellRefreshTimer = -1;
 
 	// Batched Build
 	const int BUILD_BATCH_SIZE = 20;
-	ref array<string> m_pendingBuyClassnames;
-	ref array<float> m_pendingBuyQuantities;
-	int m_buildIndex = 0;
-	int m_cachedScreenHeight = 0;
+	ref array<string> m_SilverBarter_PendingBuyClassnames;
+	ref array<float> m_SilverBarter_PendingBuyQuantities;
+	int m_SilverBarter_BuildIndex = 0;
+	int m_SilverBarter_CachedScreenHeight = 0;
 
 	void SilverTraderMenu()
 	{
-		m_sellWidgetsCache = new array<ref Widget>;
-		m_buyWidgetsCache = new array<ref Widget>;
-		m_buyData = new array<ref SilverTraderMenu_BuyData>;
-		m_previewPool = new map<string, EntityAI>;
-		m_previewByIndex = new map<int, EntityAI>;
-		m_filterData = new array<string>;
-		m_dnCache = new map<string, string>;
-		m_pendingBuyClassnames = new array<string>;
-		m_pendingBuyQuantities = new array<float>;
-		m_buySelectedQuantities = new map<string, float>;
+		m_SilverBarter_SellWidgetsCache = new array<ref Widget>;
+		m_SilverBarter_BuyWidgetsCache = new array<ref Widget>;
+		m_SilverBarter_BuyData = new array<ref SilverTraderMenuBuyData>;
+		m_SilverBarter_PreviewPool = new map<string, EntityAI>;
+		m_SilverBarter_PreviewByIndex = new map<int, EntityAI>;
+		m_SilverBarter_FilterData = new array<string>;
+		m_SilverBarter_DisplayNameCache = new map<string, string>;
+		m_SilverBarter_PendingBuyClassnames = new array<string>;
+		m_SilverBarter_PendingBuyQuantities = new array<float>;
+		m_SilverBarter_BuySelectedQuantities = new map<string, float>;
 
-		if (!m_filterMemory)
+		if (!s_SilverBarter_FilterMemory)
 		{
-			m_filterMemory = new array<bool>;
+			s_SilverBarter_FilterMemory = new array<bool>;
 		}
 	}
 
 	void InitMetadata(int traderId, SilverTrader_Info traderInfo, SilverTrader_Data traderData, bool isRotating = false)
 	{
-		m_traderId = traderId;
-		m_isRotatingTrader = isRotating;
-		m_traderInfo = traderInfo;
-		m_traderData = traderData;
-		m_buySelectedQuantities.Clear();
-		m_dirty = true;
+		m_SilverBarter_TraderId = traderId;
+		m_SilverBarter_IsRotatingTrader = isRotating;
+		m_SilverBarter_TraderInfo = traderInfo;
+		m_SilverBarter_TraderData = traderData;
+		m_SilverBarter_BuySelectedQuantities.Clear();
+		m_SilverBarter_Dirty = true;
 	}
 
 	void UpdateMetadata(SilverTrader_Data traderData)
 	{
-		m_traderData = traderData;
+		m_SilverBarter_TraderData = traderData;
 		NormalizeBuySelection();
-		m_dirty = true;
+		m_SilverBarter_Dirty = true;
 	}
 
 	// Entfernt tote Auswahl-Eintraege und klemmt verbleibende Mengen auf aktuellen Bestand/Max
@@ -114,38 +114,38 @@ class SilverTraderMenu extends UIScriptedMenu
 		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (!pluginTrader)
 		{
-			m_buySelectedQuantities.Clear();
-			m_dirty = true;
+			m_SilverBarter_BuySelectedQuantities.Clear();
+			m_SilverBarter_Dirty = true;
 			return;
 		}
 
-		for (int i = m_buySelectedQuantities.Count() - 1; i >= 0; i--)
+		for (int i = m_SilverBarter_BuySelectedQuantities.Count() - 1; i >= 0; i--)
 		{
-			string classname = m_buySelectedQuantities.GetKey(i);
-			float selectedQuantity = m_buySelectedQuantities.GetElement(i);
+			string classname = m_SilverBarter_BuySelectedQuantities.GetKey(i);
+			float selectedQuantity = m_SilverBarter_BuySelectedQuantities.GetElement(i);
 
-			if (!m_traderData || !m_traderData.m_items || !m_traderData.m_items.Contains(classname))
+			if (!m_SilverBarter_TraderData || !m_SilverBarter_TraderData.m_items || !m_SilverBarter_TraderData.m_items.Contains(classname))
 			{
-				m_buySelectedQuantities.Remove(classname);
+				m_SilverBarter_BuySelectedQuantities.Remove(classname);
 				continue;
 			}
 
-			float stock = m_traderData.m_items.Get(classname);
-			float maxBuy = pluginTrader.CalculateBuyMaxQuantity(m_traderInfo, classname);
+			float stock = m_SilverBarter_TraderData.m_items.Get(classname);
+			float maxBuy = pluginTrader.CalculateBuyMaxQuantity(m_SilverBarter_TraderInfo, classname);
 			float normalizedQuantity = Math.Min(selectedQuantity, Math.Min(stock, maxBuy));
 
 			if (normalizedQuantity <= 0)
-				m_buySelectedQuantities.Remove(classname);
+				m_SilverBarter_BuySelectedQuantities.Remove(classname);
 			else
-				m_buySelectedQuantities.Set(classname, normalizedQuantity);
+				m_SilverBarter_BuySelectedQuantities.Set(classname, normalizedQuantity);
 		}
 	}
 
 	// Leert die Kauf-Auswahl nach einem abgeschlossenen Trade (nicht bei reinem Stock-Sync)
 	void ClearBuySelection()
 	{
-		if (m_buySelectedQuantities)
-			m_buySelectedQuantities.Clear();
+		if (m_SilverBarter_BuySelectedQuantities)
+			m_SilverBarter_BuySelectedQuantities.Clear();
 	}
 
 	// Ausgeloest durch SILVERRPC_DELIVERY_COMPLETE, sobald die serverseitige Zustellung abgeschlossen ist.
@@ -154,59 +154,55 @@ class SilverTraderMenu extends UIScriptedMenu
 	// Replikation laufen ueber getrennte Kanaele ohne garantierte Reihenfolge).
 	void ScheduleSellRefresh()
 	{
-		m_pendingSellRefreshTimer = 0.2;
+		m_SilverBarter_PendingSellRefreshTimer = 0.2;
 	}
 
 	void CleanupBuyUI()
 	{
-		if (m_pendingBuyClassnames) m_pendingBuyClassnames.Clear();
-		if (m_pendingBuyQuantities) m_pendingBuyQuantities.Clear();
-		m_buildIndex = 0;
+		if (m_SilverBarter_PendingBuyClassnames) m_SilverBarter_PendingBuyClassnames.Clear();
+		if (m_SilverBarter_PendingBuyQuantities) m_SilverBarter_PendingBuyQuantities.Clear();
+		m_SilverBarter_BuildIndex = 0;
 
 		// Aktive Preview-Entities in Pool verschieben statt löschen
-		if (m_previewByIndex)
+		if (m_SilverBarter_PreviewByIndex)
 		{
-			foreach (int idx, EntityAI entity : m_previewByIndex)
+			foreach (int idx, EntityAI entity : m_SilverBarter_PreviewByIndex)
 			{
 				if (!entity)
 					continue;
 				string cn = entity.GetType();
-				if (m_previewPool && m_previewPool.Count() < PREVIEW_POOL_CAP && !m_previewPool.Contains(cn))
-					m_previewPool.Insert(cn, entity);
+				if (m_SilverBarter_PreviewPool && m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(cn))
+					m_SilverBarter_PreviewPool.Insert(cn, entity);
 				else
 					g_Game.ObjectDelete(entity);
 			}
-			m_previewByIndex.Clear();
+			m_SilverBarter_PreviewByIndex.Clear();
 		}
 
-		if (m_buyWidgetsCache)
+		if (m_SilverBarter_BuyWidgetsCache)
 		{
-			foreach (Widget w2 : m_buyWidgetsCache)
+			foreach (Widget w2 : m_SilverBarter_BuyWidgetsCache)
 			{
 				w2.Unlink();
 			}
-			m_buyWidgetsCache.Clear();
+			m_SilverBarter_BuyWidgetsCache.Clear();
 		}
 
-		if (m_buyData)
+		if (m_SilverBarter_BuyData)
 		{
-			foreach (SilverTraderMenu_BuyData buyData : m_buyData)
-			{
-				delete buyData;
-			}
-			m_buyData.Clear();
+			m_SilverBarter_BuyData.Clear();
 		}
 	}
 
 	void CleanupSellUI()
 	{
-		if (m_sellWidgetsCache)
+		if (m_SilverBarter_SellWidgetsCache)
 		{
-			foreach (Widget w1 : m_sellWidgetsCache)
+			foreach (Widget w1 : m_SilverBarter_SellWidgetsCache)
 			{
 				w1.Unlink();
 			}
-			m_sellWidgetsCache.Clear();
+			m_SilverBarter_SellWidgetsCache.Clear();
 		}
 	}
 
@@ -247,12 +243,12 @@ class SilverTraderMenu extends UIScriptedMenu
 	// verschwindet es inkl. seines gesamten Unterinventars (Attachments/Cargo), keine rekursive Tiefensuche
 	private bool MatchesSellSearch(ItemBase item)
 	{
-		if (m_sellSearchText == "")
+		if (m_SilverBarter_SellSearchText == "")
 			return true;
 
 		string dn = item.GetDisplayName();
 		dn.ToLower();
-		return dn.IndexOf(m_sellSearchText) != -1;
+		return dn.IndexOf(m_SilverBarter_SellSearchText) != -1;
 	}
 
 	int InitItemSell(int index, int depth, ItemBase item, PluginSilverTrader pluginTrader)
@@ -275,10 +271,10 @@ class SilverTraderMenu extends UIScriptedMenu
 			itemSell = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/TraderMenuItemSell.layout");
 		}
 
-		m_sellItemsPanel.AddChild(itemSell);
+		m_SilverBarter_SellItemsPanel.AddChild(itemSell);
 
 		float w, h;
-		float contentWidth = m_sellItemsPanel.GetContentWidth() - (SELL_ITEM_DEPTH_OFFSET * depth);
+		float contentWidth = m_SilverBarter_SellItemsPanel.GetContentWidth() - (SELL_ITEM_DEPTH_OFFSET * depth);
 		itemSell.GetSize(w, h);
 		itemSell.SetPos(SELL_ITEM_DEPTH_OFFSET * depth, (h + SELL_ITEM_HEIGHT_OFFSET) * index);
 		itemSell.SetSize(contentWidth, h);
@@ -301,7 +297,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		UpdateItemInfoDamage(itemSell, item);
 		UpdateItemInfoQuantity(itemSell, item);
-		m_sellWidgetsCache.Insert(itemSell);
+		m_SilverBarter_SellWidgetsCache.Insert(itemSell);
 
 		if (item.GetInventory() && depth < 8)
 		{
@@ -334,30 +330,30 @@ class SilverTraderMenu extends UIScriptedMenu
 	void InitInventoryBuy()
 	{
 		CleanupBuyUI();
-		m_buyItemsPanel.VScrollToPos01(0);
-		m_lastScrollPos01 = -1;
-		m_buyRowHeight = 0;
-		m_buyPanelHeight = 0;
+		m_SilverBarter_BuyItemsPanel.VScrollToPos01(0);
+		m_SilverBarter_LastScrollPos01 = -1;
+		m_SilverBarter_BuyRowHeight = 0;
+		m_SilverBarter_BuyPanelHeight = 0;
 
 		int sw;
-		GetScreenSize(sw, m_cachedScreenHeight);
+		GetScreenSize(sw, m_SilverBarter_CachedScreenHeight);
 
 		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
-		if (!pluginTrader || !m_traderData || !m_traderData.m_items)
+		if (!pluginTrader || !m_SilverBarter_TraderData || !m_SilverBarter_TraderData.m_items)
 			return;
 
 		array<string> sortKeys = new array<string>;
 		map<string, string> keyToClass = new map<string, string>;
 
-		foreach (string cn, float qty : m_traderData.m_items)
+		foreach (string cn, float qty : m_SilverBarter_TraderData.m_items)
 		{
-			if (!pluginTrader.FilterByCategories(m_filterData, m_filterMemory, cn))
+			if (!pluginTrader.FilterByCategories(m_SilverBarter_FilterData, s_SilverBarter_FilterMemory, cn))
 				continue;
 
 			string dn = GetItemDisplayName(cn);
 			dn.ToLower();
 
-			if (m_buySearchText != "" && dn.IndexOf(m_buySearchText) == -1)
+			if (m_SilverBarter_BuySearchText != "" && dn.IndexOf(m_SilverBarter_BuySearchText) == -1)
 				continue;
 
 			string key = dn + "|" + cn;
@@ -370,38 +366,38 @@ class SilverTraderMenu extends UIScriptedMenu
 		foreach (string key2 : sortKeys)
 		{
 			string classname = keyToClass.Get(key2);
-			m_pendingBuyClassnames.Insert(classname);
-			m_pendingBuyQuantities.Insert(m_traderData.m_items.Get(classname));
+			m_SilverBarter_PendingBuyClassnames.Insert(classname);
+			m_SilverBarter_PendingBuyQuantities.Insert(m_SilverBarter_TraderData.m_items.Get(classname));
 		}
 	}
 
 	private void StepBuildBuyList()
 	{
-		if (!m_pendingBuyClassnames || m_buildIndex >= m_pendingBuyClassnames.Count())
+		if (!m_SilverBarter_PendingBuyClassnames || m_SilverBarter_BuildIndex >= m_SilverBarter_PendingBuyClassnames.Count())
 			return;
 
 		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (!pluginTrader)
 			return;
 
-		int limit = m_buildIndex + BUILD_BATCH_SIZE;
-		if (limit > m_pendingBuyClassnames.Count())
-			limit = m_pendingBuyClassnames.Count();
+		int limit = m_SilverBarter_BuildIndex + BUILD_BATCH_SIZE;
+		if (limit > m_SilverBarter_PendingBuyClassnames.Count())
+			limit = m_SilverBarter_PendingBuyClassnames.Count();
 
-		for (int i = m_buildIndex; i < limit; i++)
+		for (int i = m_SilverBarter_BuildIndex; i < limit; i++)
 		{
-			InitItemBuy(i, m_pendingBuyClassnames.Get(i), m_pendingBuyQuantities.Get(i), pluginTrader);
+			InitItemBuy(i, m_SilverBarter_PendingBuyClassnames.Get(i), m_SilverBarter_PendingBuyQuantities.Get(i), pluginTrader);
 		}
-		m_buildIndex = limit;
+		m_SilverBarter_BuildIndex = limit;
 
 		// UpdateLazyPreviews springt sonst raus wenn Scrollpos gleich bleibt
-		m_lastScrollPos01 = -1;
+		m_SilverBarter_LastScrollPos01 = -1;
 	}
 
 	private string GetItemDisplayName(string classname)
 	{
-		if (m_dnCache.Contains(classname))
-			return m_dnCache.Get(classname);
+		if (m_SilverBarter_DisplayNameCache.Contains(classname))
+			return m_SilverBarter_DisplayNameCache.Get(classname);
 
 		string dn = classname;
 		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname + " displayName"))
@@ -411,7 +407,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		else if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname + " displayName"))
 			dn = g_Game.ConfigGetTextOut(CFG_WEAPONSPATH + " " + classname + " displayName");
 
-		m_dnCache.Insert(classname, dn);
+		m_SilverBarter_DisplayNameCache.Insert(classname, dn);
 		return dn;
 	}
 
@@ -423,7 +419,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/test/TraderMenuItemBuy.layout");
 		}
-		else if (m_cachedScreenHeight > 1440)
+		else if (m_SilverBarter_CachedScreenHeight > 1440)
 		{
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/2160p/TraderMenuItemBuy.layout");
 		}
@@ -432,33 +428,33 @@ class SilverTraderMenu extends UIScriptedMenu
 			itemBuy = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/TraderMenuItemBuy.layout");
 		}
 
-		m_buyItemsPanel.AddChild(itemBuy);
+		m_SilverBarter_BuyItemsPanel.AddChild(itemBuy);
 
 		float w, h;
-		float contentWidth = m_buyItemsPanel.GetContentWidth();
+		float contentWidth = m_SilverBarter_BuyItemsPanel.GetContentWidth();
 		itemBuy.GetSize(w, h);
 
 		// Zeilenhöhe beim ersten Item merken
-		if (m_buyRowHeight <= 0)
-			m_buyRowHeight = h + SELL_ITEM_HEIGHT_OFFSET;
+		if (m_SilverBarter_BuyRowHeight <= 0)
+			m_SilverBarter_BuyRowHeight = h + SELL_ITEM_HEIGHT_OFFSET;
 
-		itemBuy.SetPos(0, m_buyRowHeight * index);
+		itemBuy.SetPos(0, m_SilverBarter_BuyRowHeight * index);
 		itemBuy.SetSize(contentWidth, h);
 		itemBuy.SetUserID(index);
 
-		SilverTraderMenu_BuyData actionBtnParam = new SilverTraderMenu_BuyData;
-		actionBtnParam.m_classname = classname;
-		actionBtnParam.m_totalQuantity = quantity;
-		actionBtnParam.m_maxBuyQuantity = Math.Min(pluginTrader.CalculateBuyMaxQuantity(m_traderInfo, classname), quantity);
+		SilverTraderMenuBuyData actionBtnParam = new SilverTraderMenuBuyData;
+		actionBtnParam.m_Classname = classname;
+		actionBtnParam.m_TotalQuantity = quantity;
+		actionBtnParam.m_MaxBuyQuantity = Math.Min(pluginTrader.CalculateBuyMaxQuantity(m_SilverBarter_TraderInfo, classname), quantity);
 
 		ButtonWidget actionButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("ItemActionButton"));
 
 		// Vorherige Auswahl wiederherstellen (uebersteht Filter-Toggle/Rebuild); Map bleibt einzige Quelle der Wahrheit
 		float initialQty;
-		if (m_buySelectedQuantities.Contains(classname))
+		if (m_SilverBarter_BuySelectedQuantities.Contains(classname))
 		{
-			initialQty = Math.Min(m_buySelectedQuantities.Get(classname), actionBtnParam.m_maxBuyQuantity);
-			m_buySelectedQuantities.Set(classname, initialQty);
+			initialQty = Math.Min(m_SilverBarter_BuySelectedQuantities.Get(classname), actionBtnParam.m_MaxBuyQuantity);
+			m_SilverBarter_BuySelectedQuantities.Set(classname, initialQty);
 			actionButton.SetUserID(2002);
 			Widget actionButtonBack = actionButton.GetParent();
 			if (actionButtonBack)
@@ -466,7 +462,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 		else
 		{
-			initialQty = Math.Min(1, actionBtnParam.m_maxBuyQuantity);
+			initialQty = Math.Min(1, actionBtnParam.m_MaxBuyQuantity);
 			actionButton.SetUserID(2001);
 		}
 
@@ -480,7 +476,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		WidgetTrySetText(itemBuy, "ItemPriceWidget", " ");
 
 		UpdateItemInfoQuantity(itemBuy, pluginTrader, classname, quantity);
-		UpdateItemInfoSelectedQuantity(itemBuy, classname, initialQty, actionBtnParam.m_maxBuyQuantity);
+		UpdateItemInfoSelectedQuantity(itemBuy, classname, initialQty, actionBtnParam.m_MaxBuyQuantity);
 
 		ButtonWidget minusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("MinusActionBtn"));
 		minusButton.SetUserID(3001);
@@ -488,50 +484,50 @@ class SilverTraderMenu extends UIScriptedMenu
 		ButtonWidget plusButton = ButtonWidget.Cast(itemBuy.FindAnyWidget("PlusActionBtn"));
 		plusButton.SetUserID(3002);
 
-		m_buyWidgetsCache.Insert(itemBuy);
-		m_buyData.Insert(actionBtnParam);
+		m_SilverBarter_BuyWidgetsCache.Insert(itemBuy);
+		m_SilverBarter_BuyData.Insert(actionBtnParam);
 		return index;
 	}
 
 	// Spawnt/despawnt Preview-Entities je nach Sichtbarkeit, max 4 Spawns pro Frame
 	private void UpdateLazyPreviews()
 	{
-		if (!m_buyWidgetsCache || m_buyWidgetsCache.Count() == 0 || m_buyRowHeight <= 0)
+		if (!m_SilverBarter_BuyWidgetsCache || m_SilverBarter_BuyWidgetsCache.Count() == 0 || m_SilverBarter_BuyRowHeight <= 0)
 			return;
 
 		// Panel-Höhe lazy ermitteln (erst nach erstem Layout-Pass verfügbar)
-		if (m_buyPanelHeight <= 0)
+		if (m_SilverBarter_BuyPanelHeight <= 0)
 		{
 			float pw, ph;
-			m_buyItemsPanel.GetSize(pw, ph);
-			m_buyPanelHeight = ph;
-			if (m_buyPanelHeight <= 0)
+			m_SilverBarter_BuyItemsPanel.GetSize(pw, ph);
+			m_SilverBarter_BuyPanelHeight = ph;
+			if (m_SilverBarter_BuyPanelHeight <= 0)
 				return;
 		}
 
-		float scrollPos01 = m_buyItemsPanel.GetVScrollPos01();
-		if (Math.AbsFloat(scrollPos01 - m_lastScrollPos01) < 0.001)
+		float scrollPos01 = m_SilverBarter_BuyItemsPanel.GetVScrollPos01();
+		if (Math.AbsFloat(scrollPos01 - m_SilverBarter_LastScrollPos01) < 0.001)
 			return;
 
-		float contentH = m_buyItemsPanel.GetContentHeight();
-		float scrollPx = scrollPos01 * Math.Max(0, contentH - m_buyPanelHeight);
-		float visibleTop = scrollPx - m_buyRowHeight;
-		float visibleBottom = scrollPx + m_buyPanelHeight + m_buyRowHeight;
+		float contentH = m_SilverBarter_BuyItemsPanel.GetContentHeight();
+		float scrollPx = scrollPos01 * Math.Max(0, contentH - m_SilverBarter_BuyPanelHeight);
+		float visibleTop = scrollPx - m_SilverBarter_BuyRowHeight;
+		float visibleBottom = scrollPx + m_SilverBarter_BuyPanelHeight + m_SilverBarter_BuyRowHeight;
 
-		int count = m_buyWidgetsCache.Count();
+		int count = m_SilverBarter_BuyWidgetsCache.Count();
 
 		// Pass 1: Despawn - alle außerhalb des Sichtbereichs → Pool
 		// Iteration über Widget-Indizes (nicht über die Map) → Remove() sicher
 		for (int di = 0; di < count; di++)
 		{
-			if (!m_previewByIndex.Contains(di))
+			if (!m_SilverBarter_PreviewByIndex.Contains(di))
 				continue;
-			float rowTop = m_buyRowHeight * di;
-			if (rowTop < visibleBottom && (rowTop + m_buyRowHeight) > visibleTop)
+			float rowTop = m_SilverBarter_BuyRowHeight * di;
+			if (rowTop < visibleBottom && (rowTop + m_SilverBarter_BuyRowHeight) > visibleTop)
 				continue; // noch sichtbar
 
 			// Preview entkoppeln
-			Widget dw = m_buyWidgetsCache.Get(di);
+			Widget dw = m_SilverBarter_BuyWidgetsCache.Get(di);
 			if (dw)
 			{
 				ItemPreviewWidget pv = ItemPreviewWidget.Cast(dw.FindAnyWidget("ItemPreviewWidget"));
@@ -539,61 +535,61 @@ class SilverTraderMenu extends UIScriptedMenu
 					pv.SetItem(null);
 			}
 
-			EntityAI de = m_previewByIndex.Get(di);
+			EntityAI de = m_SilverBarter_PreviewByIndex.Get(di);
 			if (de)
 			{
 				string dcn = de.GetType();
-				if (m_previewPool.Count() < PREVIEW_POOL_CAP && !m_previewPool.Contains(dcn))
-					m_previewPool.Insert(dcn, de);
+				if (m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(dcn))
+					m_SilverBarter_PreviewPool.Insert(dcn, de);
 				else
 					g_Game.ObjectDelete(de);
 			}
-			m_previewByIndex.Remove(di);
+			m_SilverBarter_PreviewByIndex.Remove(di);
 		}
 
 		// Pass 2: Spawn - nur im sichtbaren Bereich, max 4 pro Frame
 		// Despawns sind fertig → break nach Limit ist korrekt
-		int startIndex = (int)Math.Floor(visibleTop / m_buyRowHeight);
-		int endIndex = (int)Math.Ceil(visibleBottom / m_buyRowHeight);
+		int startIndex = (int)Math.Floor(visibleTop / m_SilverBarter_BuyRowHeight);
+		int endIndex = (int)Math.Ceil(visibleBottom / m_SilverBarter_BuyRowHeight);
 		startIndex = Math.Clamp(startIndex, 0, count - 1);
 		endIndex = Math.Clamp(endIndex, 0, count - 1);
 
 		int spawnsThisFrame = 0;
 		for (int i = startIndex; i <= endIndex; i++)
 		{
-			if (m_previewByIndex.Contains(i))
+			if (m_SilverBarter_PreviewByIndex.Contains(i))
 				continue;
 
 			// Absicherung gegen Layout-Rounding
-			float rowTop2 = m_buyRowHeight * i;
-			if (!(rowTop2 < visibleBottom && (rowTop2 + m_buyRowHeight) > visibleTop))
+			float rowTop2 = m_SilverBarter_BuyRowHeight * i;
+			if (!(rowTop2 < visibleBottom && (rowTop2 + m_SilverBarter_BuyRowHeight) > visibleTop))
 				continue;
 
 			if (spawnsThisFrame >= 4)
 				break;
 
-			SilverTraderMenu_BuyData data = m_buyData.Get(i);
+			SilverTraderMenuBuyData data = m_SilverBarter_BuyData.Get(i);
 			if (!data)
 				continue;
 
 			EntityAI entity = null;
-			if (m_previewPool.Contains(data.m_classname))
+			if (m_SilverBarter_PreviewPool.Contains(data.m_Classname))
 			{
-				entity = m_previewPool.Get(data.m_classname);
-				m_previewPool.Remove(data.m_classname);
+				entity = m_SilverBarter_PreviewPool.Get(data.m_Classname);
+				m_SilverBarter_PreviewPool.Remove(data.m_Classname);
 			}
 			else
 			{
-				Object obj = g_Game.CreateObject(data.m_classname, "0 0 0", true, false, false);
+				Object obj = g_Game.CreateObject(data.m_Classname, "0 0 0", true, false, false);
 				entity = EntityAI.Cast(obj);
 			}
 
 			if (!entity)
 				continue;
 
-			m_previewByIndex.Insert(i, entity);
+			m_SilverBarter_PreviewByIndex.Insert(i, entity);
 			ItemBase item = ItemBase.Cast(entity);
-			ItemPreviewWidget preview = ItemPreviewWidget.Cast(m_buyWidgetsCache.Get(i).FindAnyWidget("ItemPreviewWidget"));
+			ItemPreviewWidget preview = ItemPreviewWidget.Cast(m_SilverBarter_BuyWidgetsCache.Get(i).FindAnyWidget("ItemPreviewWidget"));
 			if (preview && item)
 			{
 				preview.SetItem(item);
@@ -605,7 +601,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		// Scroll-State nur speichern wenn keine Spawns mehr ausstehen
 		if (spawnsThisFrame < 4)
-			m_lastScrollPos01 = scrollPos01;
+			m_SilverBarter_LastScrollPos01 = scrollPos01;
 	}
 
 	string FormatBuyQuantityStr(float quantity)
@@ -662,86 +658,86 @@ class SilverTraderMenu extends UIScriptedMenu
 				sellCounter.Insert(classname, pluginTrader.CalculateItemQuantity01(sellItem));
 			}
 
-			if (pluginTrader.CanSellItem(m_traderInfo, sellItem))
+			if (pluginTrader.CanSellItem(m_SilverBarter_TraderInfo, sellItem))
 			{
-				value = value + pluginTrader.CalculateSellPrice(m_traderInfo, m_traderData, sellItem);
+				value = value + pluginTrader.CalculateSellPrice(m_SilverBarter_TraderInfo, m_SilverBarter_TraderData, sellItem);
 			}
 			else
 			{
 				blockedItemsCounter++;
 			}
 		}
-		delete sellResult;
+		sellResult = null;
 
 		map<string, float> buyResult = new map<string, float>;
 		GetSelectedBuyItems(buyResult);
 		foreach (string buyClassname, float buyQuantity : buyResult)
 		{
-			if (pluginTrader.CanBuyItem(m_traderInfo, buyClassname))
+			if (pluginTrader.CanBuyItem(m_SilverBarter_TraderInfo, buyClassname))
 			{
-				value = value - pluginTrader.CalculateBuyPrice(m_traderInfo, m_traderData, buyClassname, buyQuantity);
+				value = value - pluginTrader.CalculateBuyPrice(m_SilverBarter_TraderInfo, m_SilverBarter_TraderData, buyClassname, buyQuantity);
 			}
 			else
 			{
 				blockedItemsCounter++;
 			}
 		}
-		delete buyResult;
+		buyResult = null;
 
 		value = value / PROGRESS_BAR_PRICE_DIVIDER;
 
 		if (value > 0)
 		{
-			m_progressPositive.SetCurrent(Math.Min(100, value));
-			m_progressNegative.SetCurrent(0);
-			m_barterBtn.Enable(true);
-			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_ENABLED);
+			m_SilverBarter_ProgressPositive.SetCurrent(Math.Min(100, value));
+			m_SilverBarter_ProgressNegative.SetCurrent(0);
+			m_SilverBarter_BarterButton.Enable(true);
+			m_SilverBarter_BarterButton.SetColor(TRADE_BUTTON_COLOR_ENABLED);
 		}
 		else if (value < 0)
 		{
-			m_progressPositive.SetCurrent(0);
-			m_progressNegative.SetCurrent(Math.Min(100, value * -1));
-			m_barterBtn.Enable(false);
-			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_DISABLED);
+			m_SilverBarter_ProgressPositive.SetCurrent(0);
+			m_SilverBarter_ProgressNegative.SetCurrent(Math.Min(100, value * -1));
+			m_SilverBarter_BarterButton.Enable(false);
+			m_SilverBarter_BarterButton.SetColor(TRADE_BUTTON_COLOR_DISABLED);
 		}
 		else
 		{
-			m_progressPositive.SetCurrent(0);
-			m_progressNegative.SetCurrent(0);
-			m_barterBtn.Enable(true);
-			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_ENABLED);
+			m_SilverBarter_ProgressPositive.SetCurrent(0);
+			m_SilverBarter_ProgressNegative.SetCurrent(0);
+			m_SilverBarter_BarterButton.Enable(true);
+			m_SilverBarter_BarterButton.SetColor(TRADE_BUTTON_COLOR_ENABLED);
 		}
 
 		if (blockedItemsCounter > 0)
 		{
-			m_tradeButtonInfo.SetText("#silver_trader_block_baditems");
-			m_blockBarter = true;
+			m_SilverBarter_TradeButtonInfo.SetText("#silver_trader_block_baditems");
+			m_SilverBarter_BlockBarter = true;
 		}
-		else if (!m_isRotatingTrader && pluginTrader.HasOversizedSellItems(m_traderInfo, m_traderData, sellCounter))
+		else if (!m_SilverBarter_IsRotatingTrader && pluginTrader.HasOversizedSellItems(m_SilverBarter_TraderInfo, m_SilverBarter_TraderData, sellCounter))
 		{
-			m_tradeButtonInfo.SetText("#silver_trader_block_toomany");
-			m_blockBarter = true;
+			m_SilverBarter_TradeButtonInfo.SetText("#silver_trader_block_toomany");
+			m_SilverBarter_BlockBarter = true;
 		}
 		else
 		{
-			m_tradeButtonInfo.SetText("");
-			m_blockBarter = false;
+			m_SilverBarter_TradeButtonInfo.SetText("");
+			m_SilverBarter_BlockBarter = false;
 		}
 
 		// Button-State final: blockBarter hat Vorrang
-		if (m_blockBarter)
+		if (m_SilverBarter_BlockBarter)
 		{
-			m_barterBtn.Enable(false);
-			m_barterBtn.SetColor(TRADE_BUTTON_COLOR_DISABLED);
+			m_SilverBarter_BarterButton.Enable(false);
+			m_SilverBarter_BarterButton.SetColor(TRADE_BUTTON_COLOR_DISABLED);
 		}
 
-		delete sellCounter;
-		m_currentBarterProgress = value;
+		sellCounter = null;
+		m_SilverBarter_CurrentBarterProgress = value;
 	}
 
 	void GetSelectedSellItems(array<ItemBase> result)
 	{
-		foreach (Widget w : m_sellWidgetsCache)
+		foreach (Widget w : m_SilverBarter_SellWidgetsCache)
 		{
 			Widget btn = w.FindAnyWidget("ItemActionButton");
 			if (btn.GetUserID() == 1002)
@@ -758,7 +754,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void GetSelectedBuyItems(map<string, float> result)
 	{
-		foreach (string classname, float selectedQuantity : m_buySelectedQuantities)
+		foreach (string classname, float selectedQuantity : m_SilverBarter_BuySelectedQuantities)
 		{
 			result.Insert(classname, selectedQuantity);
 		}
@@ -766,19 +762,19 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void InitializeFilter(Widget root, string name)
 	{
-		int id = m_filterData.Insert(name);
+		int id = m_SilverBarter_FilterData.Insert(name);
 		ButtonWidget btn = ButtonWidget.Cast(root.FindAnyWidget("FilterActionBtn" + id));
 		btn.SetUserID(5000 + id);
 
 		TextWidget btnText = TextWidget.Cast(btn.GetChildren());
 		btnText.SetText("#silver_trader_filter_" + name);
 
-		if (m_filterMemory.Count() <= id)
+		if (s_SilverBarter_FilterMemory.Count() <= id)
 		{
-			m_filterMemory.Insert(true);
+			s_SilverBarter_FilterMemory.Insert(true);
 		}
 
-		SelectFilterItem(btn, m_filterMemory.Get(id));
+		SelectFilterItem(btn, s_SilverBarter_FilterMemory.Get(id));
 	}
 
 	override Widget Init()
@@ -800,18 +796,18 @@ class SilverTraderMenu extends UIScriptedMenu
 			layoutRoot = g_Game.GetWorkspace().CreateWidgets("SilverBarter/layout/TraderMenu.layout");
 		}
 
-		m_sellItemsPanel = ScrollWidget.Cast(layoutRoot.FindAnyWidget("SellItemsPanel"));
-		m_buyItemsPanel = ScrollWidget.Cast(layoutRoot.FindAnyWidget("BuyItemsPanel"));
-		m_progressPositive = SimpleProgressBarWidget.Cast(layoutRoot.FindAnyWidget("ProgressPositive"));
-		m_progressNegative = SimpleProgressBarWidget.Cast(layoutRoot.FindAnyWidget("ProgressNegative"));
-		m_barterBtn = ButtonWidget.Cast(layoutRoot.FindAnyWidget("TradeButton"));
-		m_tradeButtonInfo = MultilineTextWidget.Cast(layoutRoot.FindAnyWidget("TradeButtonInfo"));
+		m_SilverBarter_SellItemsPanel = ScrollWidget.Cast(layoutRoot.FindAnyWidget("SellItemsPanel"));
+		m_SilverBarter_BuyItemsPanel = ScrollWidget.Cast(layoutRoot.FindAnyWidget("BuyItemsPanel"));
+		m_SilverBarter_ProgressPositive = SimpleProgressBarWidget.Cast(layoutRoot.FindAnyWidget("ProgressPositive"));
+		m_SilverBarter_ProgressNegative = SimpleProgressBarWidget.Cast(layoutRoot.FindAnyWidget("ProgressNegative"));
+		m_SilverBarter_BarterButton = ButtonWidget.Cast(layoutRoot.FindAnyWidget("TradeButton"));
+		m_SilverBarter_TradeButtonInfo = MultilineTextWidget.Cast(layoutRoot.FindAnyWidget("TradeButtonInfo"));
 
 		// Nur im Test-Layout vorhanden - bleibt null im alten Layout, Aufrufer pruefen darauf
-		m_buySearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("BuySearchBox"));
-		m_sellSearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("SellSearchBox"));
+		m_SilverBarter_BuySearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("BuySearchBox"));
+		m_SilverBarter_SellSearchBox = EditBoxWidget.Cast(layoutRoot.FindAnyWidget("SellSearchBox"));
 
-		m_filterData.Clear();
+		m_SilverBarter_FilterData.Clear();
 		InitializeFilter(layoutRoot, "weapons");
 		InitializeFilter(layoutRoot, "magazines");
 		InitializeFilter(layoutRoot, "attachments");
@@ -825,7 +821,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		InitializeFilter(layoutRoot, "vehicle_parts");
 		InitializeFilter(layoutRoot, "other");
 
-		m_active = true;
+		m_SilverBarter_Active = true;
 		return layoutRoot;
 	}
 
@@ -833,37 +829,37 @@ class SilverTraderMenu extends UIScriptedMenu
 	{
 		super.Update(timeslice);
 
-		if (m_dirty)
+		if (m_SilverBarter_Dirty)
 		{
 			CleanupUI();
 			InitInventorySell();
 			InitInventoryBuy();
 			UpdateCurrentPriceProgress();
-			m_dirty = false;
+			m_SilverBarter_Dirty = false;
 		}
 
-		if (m_pendingSellRefreshTimer > 0)
+		if (m_SilverBarter_PendingSellRefreshTimer > 0)
 		{
-			m_pendingSellRefreshTimer = m_pendingSellRefreshTimer - timeslice;
+			m_SilverBarter_PendingSellRefreshTimer = m_SilverBarter_PendingSellRefreshTimer - timeslice;
 
-			if (m_pendingSellRefreshTimer <= 0)
+			if (m_SilverBarter_PendingSellRefreshTimer <= 0)
 			{
-				m_pendingSellRefreshTimer = -1;
+				m_SilverBarter_PendingSellRefreshTimer = -1;
 
-				if (m_active)
-					m_dirty = true;
+				if (m_SilverBarter_Active)
+					m_SilverBarter_Dirty = true;
 			}
 		}
 
-		if (m_pendingSellSearchTimer > 0)
+		if (m_SilverBarter_PendingSellSearchTimer > 0)
 		{
-			m_pendingSellSearchTimer = m_pendingSellSearchTimer - timeslice;
+			m_SilverBarter_PendingSellSearchTimer = m_SilverBarter_PendingSellSearchTimer - timeslice;
 
-			if (m_pendingSellSearchTimer <= 0)
+			if (m_SilverBarter_PendingSellSearchTimer <= 0)
 			{
-				m_pendingSellSearchTimer = -1;
+				m_SilverBarter_PendingSellSearchTimer = -1;
 
-				if (m_active)
+				if (m_SilverBarter_Active)
 				{
 					CleanupSellUI();
 					InitInventorySell();
@@ -872,15 +868,15 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 		}
 
-		if (m_pendingBuySearchTimer > 0)
+		if (m_SilverBarter_PendingBuySearchTimer > 0)
 		{
-			m_pendingBuySearchTimer = m_pendingBuySearchTimer - timeslice;
+			m_SilverBarter_PendingBuySearchTimer = m_SilverBarter_PendingBuySearchTimer - timeslice;
 
-			if (m_pendingBuySearchTimer <= 0)
+			if (m_SilverBarter_PendingBuySearchTimer <= 0)
 			{
-				m_pendingBuySearchTimer = -1;
+				m_SilverBarter_PendingBuySearchTimer = -1;
 
-				if (m_active)
+				if (m_SilverBarter_Active)
 				{
 					InitInventoryBuy();
 					UpdateCurrentPriceProgress();
@@ -894,14 +890,14 @@ class SilverTraderMenu extends UIScriptedMenu
 		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
 		if (!player || !player.IsAlive() || player.IsUnconscious() || player.IsRestrained())
 		{
-			m_active = false;
+			m_SilverBarter_Active = false;
 		}
-		else if (m_traderInfo && vector.Distance(m_traderInfo.m_position, player.GetPosition()) > 5)
+		else if (m_SilverBarter_TraderInfo && vector.Distance(m_SilverBarter_TraderInfo.m_position, player.GetPosition()) > 5)
 		{
-			m_active = false;
+			m_SilverBarter_Active = false;
 		}
 
-		if (!m_active)
+		if (!m_SilverBarter_Active)
 		{
 			g_Game.GetUIManager().Back();
 		}
@@ -949,58 +945,58 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			ScriptRPC closeRpc = new ScriptRPC();
 			closeRpc.Write(SilverRPC.SILVERRPC_CLOSE_TRADER_MENU);
-			closeRpc.Write(m_traderId);
+			closeRpc.Write(m_SilverBarter_TraderId);
 			closeRpc.Send(closePlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true);
 
 			PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 			if (pluginTrader)
-				pluginTrader.DebugLog("Close RPC sent for trader " + m_traderId.ToString());
+				pluginTrader.DebugLog("Close RPC sent for trader " + m_SilverBarter_TraderId.ToString());
 		}
 
 		CleanupUI(); // verschiebt aktive Entities in Pool
-		m_pendingSellRefreshTimer = -1;
+		m_SilverBarter_PendingSellRefreshTimer = -1;
 
 		// Widget-Referenzen freigeben
-		m_sellItemsPanel = null;
-		m_buyItemsPanel = null;
-		m_progressPositive = null;
-		m_progressNegative = null;
-		m_barterBtn = null;
-		m_tradeButtonInfo = null;
-		m_buySelectedQuantities = null;
+		m_SilverBarter_SellItemsPanel = null;
+		m_SilverBarter_BuyItemsPanel = null;
+		m_SilverBarter_ProgressPositive = null;
+		m_SilverBarter_ProgressNegative = null;
+		m_SilverBarter_BarterButton = null;
+		m_SilverBarter_TradeButtonInfo = null;
+		m_SilverBarter_BuySelectedQuantities = null;
 
-		m_buySearchBox = null;
-		m_sellSearchBox = null;
-		m_buySearchText = "";
-		m_sellSearchText = "";
-		m_pendingSellSearchTimer = -1;
-		m_pendingBuySearchTimer = -1;
+		m_SilverBarter_BuySearchBox = null;
+		m_SilverBarter_SellSearchBox = null;
+		m_SilverBarter_BuySearchText = "";
+		m_SilverBarter_SellSearchText = "";
+		m_SilverBarter_PendingSellSearchTimer = -1;
+		m_SilverBarter_PendingBuySearchTimer = -1;
 
 		PluginSilverTrader traderPlugin = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
 		if (traderPlugin)
 			traderPlugin.ClearTraderMenuRef(this);
 
 		// Pool-Entities jetzt final löschen
-		if (m_previewPool)
+		if (m_SilverBarter_PreviewPool)
 		{
-			CGame game = GetGame();
-			for (int pi = 0; pi < m_previewPool.Count(); pi++)
+			CGame game = g_Game;
+			for (int pi = 0; pi < m_SilverBarter_PreviewPool.Count(); pi++)
 			{
-				EntityAI e = m_previewPool.GetElement(pi);
+				EntityAI e = m_SilverBarter_PreviewPool.GetElement(pi);
 				if (e && game)
 					game.ObjectDelete(e);
 			}
-			m_previewPool = null;
+			m_SilverBarter_PreviewPool = null;
 		}
 
-		m_previewByIndex = null;
-		m_traderInfo = null;
-		m_traderData = null;
-		m_buyData = null;
-		m_sellWidgetsCache = null;
-		m_buyWidgetsCache = null;
-		m_filterData = null;
-		m_dnCache = null;
+		m_SilverBarter_PreviewByIndex = null;
+		m_SilverBarter_TraderInfo = null;
+		m_SilverBarter_TraderData = null;
+		m_SilverBarter_BuyData = null;
+		m_SilverBarter_SellWidgetsCache = null;
+		m_SilverBarter_BuyWidgetsCache = null;
+		m_SilverBarter_FilterData = null;
+		m_SilverBarter_DisplayNameCache = null;
 	}
 
 	private void SelectSellItem(ButtonWidget btn, bool enable)
@@ -1010,7 +1006,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			return;
 
 		int depth = back.GetUserID();
-		int itemId = m_sellWidgetsCache.Find(back.GetParent());
+		int itemId = m_SilverBarter_SellWidgetsCache.Find(back.GetParent());
 
 		if (itemId != -1)
 		{
@@ -1020,7 +1016,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			{
 				while (index >= 0)
 				{
-					Widget prevItem = m_sellWidgetsCache.Get(index);
+					Widget prevItem = m_SilverBarter_SellWidgetsCache.Get(index);
 					ButtonWidget prevBtn = ButtonWidget.Cast(prevItem.FindAnyWidget("ItemActionButton"));
 					Widget prevBack = prevBtn.GetParent();
 
@@ -1049,9 +1045,9 @@ class SilverTraderMenu extends UIScriptedMenu
 			}
 
 			index = itemId + 1;
-			while (index < m_sellWidgetsCache.Count())
+			while (index < m_SilverBarter_SellWidgetsCache.Count())
 			{
-				Widget nextItem = m_sellWidgetsCache.Get(index);
+				Widget nextItem = m_SilverBarter_SellWidgetsCache.Get(index);
 				ButtonWidget nextBtn = ButtonWidget.Cast(nextItem.FindAnyWidget("ItemActionButton"));
 				Widget nextBack = nextBtn.GetParent();
 
@@ -1101,19 +1097,19 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (mainWidget)
 		{
 			int index = mainWidget.GetUserID();
-			if (index >= 0 && index < m_buyData.Count())
+			if (index >= 0 && index < m_SilverBarter_BuyData.Count())
 			{
-				SilverTraderMenu_BuyData buyData = m_buyData.Get(index);
+				SilverTraderMenuBuyData buyData = m_SilverBarter_BuyData.Get(index);
 				if (buyData)
 				{
 					if (enable)
 					{
-						if (!m_buySelectedQuantities.Contains(buyData.m_classname))
-							m_buySelectedQuantities.Set(buyData.m_classname, Math.Min(1, buyData.m_maxBuyQuantity));
+						if (!m_SilverBarter_BuySelectedQuantities.Contains(buyData.m_Classname))
+							m_SilverBarter_BuySelectedQuantities.Set(buyData.m_Classname, Math.Min(1, buyData.m_MaxBuyQuantity));
 					}
 					else
 					{
-						m_buySelectedQuantities.Remove(buyData.m_classname);
+						m_SilverBarter_BuySelectedQuantities.Remove(buyData.m_Classname);
 					}
 				}
 			}
@@ -1144,7 +1140,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void SelectFilterItem(ButtonWidget btn, bool enable)
 	{
-		m_filterMemory.Set(btn.GetUserID() - 5000, enable);
+		s_SilverBarter_FilterMemory.Set(btn.GetUserID() - 5000, enable);
 
 		Widget back = btn.GetParent();
 		if (!back)
@@ -1170,23 +1166,23 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		Widget mainWidget = btn.GetParent().GetParent().GetParent().GetParent();
 		int id = mainWidget.GetUserID();
-		if (id < 0 || id >= m_buyData.Count())
+		if (id < 0 || id >= m_SilverBarter_BuyData.Count())
 			return;
 
 		ButtonWidget mainButton = ButtonWidget.Cast(mainWidget.FindAnyWidget("ItemActionButton"));
 		SelectBuyItem(mainButton, true);
 
-		SilverTraderMenu_BuyData mainParam = m_buyData.Get(id);
+		SilverTraderMenuBuyData mainParam = m_SilverBarter_BuyData.Get(id);
 		if (!mainParam)
 			return;
 
 		float currentQty;
-		if (m_buySelectedQuantities.Contains(mainParam.m_classname))
-			currentQty = m_buySelectedQuantities.Get(mainParam.m_classname);
+		if (m_SilverBarter_BuySelectedQuantities.Contains(mainParam.m_Classname))
+			currentQty = m_SilverBarter_BuySelectedQuantities.Get(mainParam.m_Classname);
 		else
-			currentQty = Math.Min(1, mainParam.m_maxBuyQuantity);
+			currentQty = Math.Min(1, mainParam.m_MaxBuyQuantity);
 
-		float stepSize = pluginTrader.CalculateItemSelectedQuantityStep(mainParam.m_classname);
+		float stepSize = pluginTrader.CalculateItemSelectedQuantityStep(mainParam.m_Classname);
 
 		// Konsistente Step-Logik: im Sub-1-Bereich immer stepSize verwenden
 		float actualStep = 0;
@@ -1207,19 +1203,19 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 
 		float newQty = currentQty + actualStep;
-		newQty = Math.Clamp(newQty, stepSize, mainParam.m_maxBuyQuantity);
-		m_buySelectedQuantities.Set(mainParam.m_classname, newQty);
+		newQty = Math.Clamp(newQty, stepSize, mainParam.m_MaxBuyQuantity);
+		m_SilverBarter_BuySelectedQuantities.Set(mainParam.m_Classname, newQty);
 
-		UpdateItemInfoSelectedQuantity(mainWidget, mainParam.m_classname, newQty, mainParam.m_maxBuyQuantity);
+		UpdateItemInfoSelectedQuantity(mainWidget, mainParam.m_Classname, newQty, mainParam.m_MaxBuyQuantity);
 		UpdateCurrentPriceProgress();
 	}
 
 	private void DoBarter()
 	{
-		if (m_currentBarterProgress < 0)
+		if (m_SilverBarter_CurrentBarterProgress < 0)
 			return;
 
-		if (m_blockBarter)
+		if (m_SilverBarter_BlockBarter)
 			return;
 
 		PluginSilverTrader pluginTrader = PluginSilverTrader.Cast(GetPlugin(PluginSilverTrader));
@@ -1234,11 +1230,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			GetSelectedBuyItems(buyItems);
 
-			pluginTrader.DoBarter(m_traderId, sellItems, buyItems);
+			pluginTrader.DoBarter(m_SilverBarter_TraderId, sellItems, buyItems);
 		}
 
-		delete sellItems;
-		delete buyItems;
+		sellItems = null;
+		buyItems = null;
 	}
 
 	private string ReadSearchText(EditBoxWidget box)
@@ -1259,17 +1255,17 @@ class SilverTraderMenu extends UIScriptedMenu
 	{
 		super.OnChange(w, x, y, finished);
 
-		if (w == m_buySearchBox)
+		if (w == m_SilverBarter_BuySearchBox)
 		{
-			m_buySearchText = ReadSearchText(EditBoxWidget.Cast(w));
-			m_pendingBuySearchTimer = 0.15;
+			m_SilverBarter_BuySearchText = ReadSearchText(EditBoxWidget.Cast(w));
+			m_SilverBarter_PendingBuySearchTimer = 0.15;
 			return true;
 		}
 
-		if (w == m_sellSearchBox)
+		if (w == m_SilverBarter_SellSearchBox)
 		{
-			m_sellSearchText = ReadSearchText(EditBoxWidget.Cast(w));
-			m_pendingSellSearchTimer = 0.25;
+			m_SilverBarter_SellSearchText = ReadSearchText(EditBoxWidget.Cast(w));
+			m_SilverBarter_PendingSellSearchTimer = 0.25;
 			return true;
 		}
 
@@ -1310,7 +1306,7 @@ class SilverTraderMenu extends UIScriptedMenu
 			{
 				SwitchFilterItem(ButtonWidget.Cast(w));
 			}
-			else if (w == m_barterBtn)
+			else if (w == m_SilverBarter_BarterButton)
 			{
 				DoBarter();
 			}
@@ -1355,7 +1351,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		if (!pluginTrader)
 			return;
 
-		if (!pluginTrader.CanSellItem(m_traderInfo, item_base))
+		if (!pluginTrader.CanSellItem(m_SilverBarter_TraderInfo, item_base))
 		{
 			WidgetTrySetText(root_widget, "ItemQuantityWidget", "#silver_trader_block_sell", 0xFF800000);
 			return;
@@ -1414,7 +1410,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	private void UpdateItemInfoQuantity(Widget root_widget, PluginSilverTrader pluginTrader, string classname, float quantity)
 	{
-		if (!pluginTrader.CanBuyItem(m_traderInfo, classname))
+		if (!pluginTrader.CanBuyItem(m_SilverBarter_TraderInfo, classname))
 		{
 			WidgetTrySetText(root_widget, "ItemQuantityWidget", "#silver_trader_block_buy", 0xFF800000);
 			return;
@@ -1422,17 +1418,17 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		SilverItemConfigCache cache = pluginTrader.GetOrCreateItemCache(classname);
 
-		if (cache.maxStackSize > 0 && !cache.isLiquidContainer)
+		if (cache.m_MaxStackSize > 0 && !cache.m_IsLiquidContainer)
 		{
 			float item_quantity;
-			if (cache.stackedUnit == "pc." && cache.canBeSplit)
+			if (cache.m_StackedUnit == "pc." && cache.m_CanBeSplit)
 			{
-				item_quantity = quantity * cache.maxStackSize;
+				item_quantity = quantity * cache.m_MaxStackSize;
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", FormatBuyQuantityStr(item_quantity) + " " + "#inv_inspect_pieces");
 			}
-			else if (cache.isAmmo)
+			else if (cache.m_IsAmmo)
 			{
-				item_quantity = quantity * cache.maxStackSize;
+				item_quantity = quantity * cache.m_MaxStackSize;
 				WidgetTrySetText(root_widget, "ItemQuantityWidget", FormatBuyQuantityStr(item_quantity) + " " + "#inv_inspect_pieces");
 			}
 			else
@@ -1454,20 +1450,20 @@ class SilverTraderMenu extends UIScriptedMenu
 
 		SilverItemConfigCache cache = pluginTrader.GetOrCreateItemCache(classname);
 
-		if (cache.maxStackSize > 0 && !cache.isLiquidContainer)
+		if (cache.m_MaxStackSize > 0 && !cache.m_IsLiquidContainer)
 		{
 			float item_quantity;
 			float item_max_quantity;
-			if (cache.stackedUnit == "pc." && cache.canBeSplit)
+			if (cache.m_StackedUnit == "pc." && cache.m_CanBeSplit)
 			{
-				item_quantity = quantity * cache.maxStackSize;
-				item_max_quantity = maxQuantity * cache.maxStackSize;
+				item_quantity = quantity * cache.m_MaxStackSize;
+				item_max_quantity = maxQuantity * cache.m_MaxStackSize;
 				WidgetTrySetText(root_widget, "ItemSelectedCountWidget", FormatBuyQuantityStr(item_quantity) + "/" + FormatBuyQuantityStr(item_max_quantity) + " " + "#inv_inspect_pieces");
 			}
-			else if (cache.isAmmo)
+			else if (cache.m_IsAmmo)
 			{
-				item_quantity = quantity * cache.maxStackSize;
-				item_max_quantity = maxQuantity * cache.maxStackSize;
+				item_quantity = quantity * cache.m_MaxStackSize;
+				item_max_quantity = maxQuantity * cache.m_MaxStackSize;
 				WidgetTrySetText(root_widget, "ItemSelectedCountWidget", FormatBuyQuantityStr(item_quantity) + "/" + FormatBuyQuantityStr(item_max_quantity) + " " + "#inv_inspect_pieces");
 			}
 			else
@@ -1500,9 +1496,9 @@ class SilverTraderMenu extends UIScriptedMenu
 	}
 };
 
-class SilverTraderMenu_BuyData
+class SilverTraderMenuBuyData
 {
-	string m_classname;
-	float m_totalQuantity;
-	float m_maxBuyQuantity;
+	string m_Classname;
+	float m_TotalQuantity;
+	float m_MaxBuyQuantity;
 };

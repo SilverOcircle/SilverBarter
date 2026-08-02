@@ -5,16 +5,16 @@ class SilverRPCManager
 	static const int CHANNEL_SILVER_BARTER = 0x534C5652; // "SLVR"
 
 	// Handler-Maps
-	private static ref map<int, ref array<ref SilverRPCHandler>> s_handlers;
-	private static bool s_initialized = false;
+	private static ref map<int, ref array<ref SilverRPCHandler>> s_Handlers;
+	private static bool s_Initialized = false;
 
 	static void Init()
 	{
-		if (s_initialized)
+		if (s_Initialized)
 			return;
 
-		s_handlers = new map<int, ref array<ref SilverRPCHandler>>;
-		s_initialized = true;
+		s_Handlers = new map<int, ref array<ref SilverRPCHandler>>;
+		s_Initialized = true;
 	}
 
 	static void RegisterHandler(int rpcType, Class instance, string methodName)
@@ -22,19 +22,35 @@ class SilverRPCManager
 		Init();
 
 		// Alte Handler fuer diesen rpcType entfernen (verhindert Dangling Pointer nach Reconnect)
-		if (s_handlers.Contains(rpcType))
+		if (s_Handlers.Contains(rpcType))
 		{
-			s_handlers.Get(rpcType).Clear();
+			s_Handlers.Get(rpcType).Clear();
 		}
 		else
 		{
-			s_handlers.Insert(rpcType, new array<ref SilverRPCHandler>);
+			s_Handlers.Insert(rpcType, new array<ref SilverRPCHandler>);
 		}
 
 		SilverRPCHandler handler = new SilverRPCHandler();
-		handler.instance = instance;
-		handler.methodName = methodName;
-		s_handlers.Get(rpcType).Insert(handler);
+		handler.m_Instance = instance;
+		handler.m_MethodName = methodName;
+		s_Handlers.Get(rpcType).Insert(handler);
+	}
+
+	static void UnregisterInstance(Class instance)
+	{
+		if (!instance || !s_Handlers)
+			return;
+
+		foreach (int rpcType, array<ref SilverRPCHandler> handlerList : s_Handlers)
+		{
+			for (int i = handlerList.Count() - 1; i >= 0; i--)
+			{
+				SilverRPCHandler handler = handlerList.Get(i);
+				if (!handler || handler.m_Instance == instance)
+					handlerList.Remove(i);
+			}
+		}
 	}
 
 	static void SendToServer(int rpcType, Param params)
@@ -51,7 +67,7 @@ class SilverRPCManager
 
 	static void SendToClient(int rpcType, PlayerIdentity identity, Param params)
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!identity)
@@ -76,15 +92,15 @@ class SilverRPCManager
 		if (!ctx.Read(rpcType))
 			return;
 
-		if (!s_handlers.Contains(rpcType))
+		if (!s_Handlers.Contains(rpcType))
 			return;
 
-		array<ref SilverRPCHandler> handlerList = s_handlers.Get(rpcType);
+		array<ref SilverRPCHandler> handlerList = s_Handlers.Get(rpcType);
 		foreach (SilverRPCHandler handler : handlerList)
 		{
-			if (handler && handler.instance)
+			if (handler && handler.m_Instance)
 			{
-				g_Game.GameScript.CallFunctionParams(handler.instance, handler.methodName, null, new Param2<ParamsReadContext, PlayerIdentity>(ctx, sender));
+				g_Game.GameScript.CallFunctionParams(handler.m_Instance, handler.m_MethodName, null, new Param2<ParamsReadContext, PlayerIdentity>(ctx, sender));
 			}
 		}
 	}
@@ -103,6 +119,6 @@ class SilverRPCManager
 
 class SilverRPCHandler
 {
-	Class instance;
-	string methodName;
+	Class m_Instance;
+	string m_MethodName;
 };

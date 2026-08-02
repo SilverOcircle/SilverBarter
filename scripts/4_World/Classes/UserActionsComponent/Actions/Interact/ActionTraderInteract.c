@@ -1,8 +1,6 @@
 // SilverBarter Trader-Interaktions-Action
 class ActionTraderInteract: ActionInteractBase
 {
-	protected ref array<Object> m_foundObjects;
-
 	void ActionTraderInteract()
 	{
 		m_CommandUID = DayZPlayerConstants.CMD_ACTIONMOD_INTERACTONCE;
@@ -24,7 +22,7 @@ class ActionTraderInteract: ActionInteractBase
 	override bool ActionCondition(PlayerBase player, ActionTarget target, ItemBase item)
 	{
 		// Server gibt immer true zurueck (Validierung erfolgt spaeter)
-		if (g_Game.IsServer())
+		if (g_Game && g_Game.IsDedicatedServer())
 			return true;
 
 		// Client-Pruefungen
@@ -34,7 +32,7 @@ class ActionTraderInteract: ActionInteractBase
 		if (!target || !target.GetObject())
 			return false;
 
-		TraderPoint traderPoint = FindTraderPoint(target.GetObject().GetPosition());
+		TraderPoint traderPoint = TraderPoint.FindByTraderObject(target.GetObject());
 		if (traderPoint && traderPoint.IsTraderReady() && traderPoint.GetTraderObject() == target.GetObject())
 		{
 			return true;
@@ -43,35 +41,12 @@ class ActionTraderInteract: ActionInteractBase
 		return false;
 	}
 
-	// TraderPoint in der Naehe finden
-	TraderPoint FindTraderPoint(vector pos)
-	{
-		if (!m_foundObjects)
-			m_foundObjects = new array<Object>;
-		else
-			m_foundObjects.Clear();
-
-		g_Game.GetObjectsAtPosition3D(pos, 0.1, m_foundObjects, null);
-
-		TraderPoint result = null;
-		foreach (Object obj : m_foundObjects)
-		{
-			if (obj && obj.IsInherited(TraderPoint))
-			{
-				result = TraderPoint.Cast(obj);
-				break;
-			}
-		}
-
-		return result;
-	}
-
 	override void OnEndServer(ActionData action_data)
 	{
 		if (!action_data.m_Player || !action_data.m_Target || !action_data.m_Target.GetObject())
 			return;
 
-		TraderPoint traderPoint = FindTraderPoint(action_data.m_Target.GetObject().GetPosition());
+		TraderPoint traderPoint = TraderPoint.FindByTraderObject(action_data.m_Target.GetObject());
 		if (!traderPoint || !traderPoint.IsTraderReady())
 			return;
 

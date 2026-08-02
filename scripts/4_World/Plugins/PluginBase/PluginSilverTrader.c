@@ -1,23 +1,23 @@
 // Gecachte Config-Daten pro Classname (einmalig befuellt, Config ist statisch)
 class SilverItemConfigCache
 {
-	int    itemCapacity;      // itemSize[0] * itemSize[1], Min 1
-	bool   isLiquidContainer;
-	int    maxStackSize;      // varQuantityMax oder count
-	string stackedUnit;       // z.B. "pc."
-	bool   isAmmo;            // IsKindOf Ammunition_Base
-	bool   canBeSplit;        // canBeSplit == 1 im Config
-	string category;          // Ergebnis von FilterByCategories
+	int    m_ItemCapacity;      // itemSize[0] * itemSize[1], Min 1
+	bool   m_IsLiquidContainer;
+	int    m_MaxStackSize;      // varQuantityMax oder count
+	string m_StackedUnit;       // z.B. "pc."
+	bool   m_IsAmmo;            // IsKindOf Ammunition_Base
+	bool   m_CanBeSplit;        // m_CanBeSplit == 1 im Config
+	string m_Category;        // Ergebnis von FilterByCategories
 }
 
 // SilverBarter Haupt-Plugin (Server + Client vereint)
 class PluginSilverTrader extends PluginBase
 {
 	// Werkzeug-Klassen fuer Kategorie-Filter (Client + Server)
-	static ref array<string> TOOL_CLASSES;
+	static ref array<string> s_ToolClasses;
 
 	// Gueltige Filter-Kategorien (fuer Kategorie-Overrides, verhindert Tippfehler-Ausfaelle)
-	static ref array<string> VALID_CATEGORIES;
+	static ref array<string> s_ValidCategories;
 
 	// Tiefenversatz fuer die SilverBarterChest-Staging-Position: muss innerhalb der Network-Bubble
 	// des Kaeufers bleiben (sonst "[syncinv] item not in bubble"), aber unter der Oberflaeche liegen.
@@ -27,102 +27,103 @@ class PluginSilverTrader extends PluginBase
 	const int DELIVERY_MAX_POLLS = 60;        // globales Sicherheitsnetz (~12s)
 
 	// Client-Seite
-	ref SilverTraderMenu m_traderMenu;
-	ref array<string> m_quantityPriceClassnamesClient;
-	ref array<ref SilverCategoryOverride> m_categoryOverridesClient;
-	ref map<string, float> m_categoryValueMultipliersClient;
+	ref SilverTraderMenu m_SilverBarter_TraderMenu;
+	ref array<string> m_SilverBarter_QuantityPriceClassnamesClient;
+	ref array<ref SilverCategoryOverride> m_SilverBarter_CategoryOverridesClient;
+	ref map<string, float> m_SilverBarter_CategoryValueMultipliersClient;
 
 	// Server-Seite
-	ref SilverBarterConfig m_config;
-	ref SilverRotatingTradersConfig m_rotatingConfig;
-	ref SilverCategoryOverridesConfig m_categoryOverridesConfig;
-	ref map<int, TraderPoint> m_traderPoints;
-	ref map<int, ref SilverTrader_ServerConfig> m_traderCache;
-	ref map<int, ref SilverTrader_Data> m_traderData;
-	ref set<int> m_dirtyTraders;
-	float m_updateTimer = 0;
-	float m_saveTimer = 0;
+	SilverBarterConfig m_SilverBarter_Config;
+	SilverRotatingTradersConfig m_SilverBarter_RotatingConfig;
+	SilverCategoryOverridesConfig m_SilverBarter_CategoryOverridesConfig;
+	ref map<int, TraderPoint> m_SilverBarter_TraderPoints;
+	ref map<int, SilverTrader_ServerConfig> m_SilverBarter_TraderCache;
+	ref map<int, ref SilverTrader_Data> m_SilverBarter_TraderData;
+	ref set<int> m_SilverBarter_DirtyTraders;
+	float m_SilverBarter_SaveTimer = 0;
 	const float SAVE_INTERVAL = 300.0; // Alle 5 Minuten speichern
 
 	// Rotierende Haendler (Runtime-Daten, nicht persistent)
-	ref map<int, TraderPoint> m_rotatingTraderPoints;
-	ref map<int, ref SilverRotatingTrader_Config> m_rotatingTraderCache;
-	ref map<int, ref SilverTrader_Data> m_rotatingTraderData;
-	ref map<int, float> m_rotationTimers;
-	bool m_zenMapMarkersSet = false;
+	ref map<int, TraderPoint> m_SilverBarter_RotatingTraderPoints;
+	ref map<int, SilverRotatingTrader_Config> m_SilverBarter_RotatingTraderCache;
+	ref map<int, ref SilverTrader_Data> m_SilverBarter_RotatingTraderData;
+	ref map<int, float> m_SilverBarter_RotationTimers;
+	bool m_SilverBarter_ZenMapMarkersSet = false;
 
 	// Item-Config-Cache (Classname → gecachte Config-Werte)
-	ref map<string, ref SilverItemConfigCache> m_itemConfigCache;
+	ref map<string, ref SilverItemConfigCache> m_SilverBarter_ItemConfigCache;
 
 	// Welche Spieler (PlayerId) haben welchen Trader gerade offen (traderId → PlayerIds)
-	ref map<int, ref array<int>> m_openTraderMenus;
+	ref map<int, ref array<int>> m_SilverBarter_OpenTraderMenus;
 
 	private const string DATA_FOLDER = "$profile:\\SilverBarter\\TraderData\\";
 
 	override void OnInit()
 	{
+		super.OnInit();
+
 		// Werkzeug-Klassen initialisieren (Client + Server)
-		if (!TOOL_CLASSES)
+		if (!s_ToolClasses)
 		{
-			TOOL_CLASSES = new array<string>;
-			TOOL_CLASSES.Insert("Hatchet");
-			TOOL_CLASSES.Insert("Sickle");
-			TOOL_CLASSES.Insert("Blowtorch");
-			TOOL_CLASSES.Insert("Whetstone");
-			TOOL_CLASSES.Insert("ElectronicRepairKit");
-			TOOL_CLASSES.Insert("LugWrench");
-			TOOL_CLASSES.Insert("PipeWrench");
-			TOOL_CLASSES.Insert("Screwdriver");
-			TOOL_CLASSES.Insert("Hacksaw");
-			TOOL_CLASSES.Insert("HandSaw");
-			TOOL_CLASSES.Insert("Pliers");
-			TOOL_CLASSES.Insert("Hammer");
-			TOOL_CLASSES.Insert("CanOpener");
-			TOOL_CLASSES.Insert("SewingKit");
-			TOOL_CLASSES.Insert("LeatherSewingKit");
-			TOOL_CLASSES.Insert("Lockpick");
-			TOOL_CLASSES.Insert("Crowbar");
-			TOOL_CLASSES.Insert("Wrench");
-			TOOL_CLASSES.Insert("SledgeHammer");
-			TOOL_CLASSES.Insert("Cleaver");
-			TOOL_CLASSES.Insert("SteakKnife");
-			TOOL_CLASSES.Insert("KitchenKnife");
-			TOOL_CLASSES.Insert("Broom");
-			TOOL_CLASSES.Insert("Shovel");
-			TOOL_CLASSES.Insert("Pickaxe");
-			TOOL_CLASSES.Insert("Pitchfork");
-			TOOL_CLASSES.Insert("FarmingHoe");
-			TOOL_CLASSES.Insert("OrientalMachete");
-			TOOL_CLASSES.Insert("Machete");
-			TOOL_CLASSES.Insert("FangeKnife");
-			TOOL_CLASSES.Insert("KukriKnife");
-			TOOL_CLASSES.Insert("HuntingKnife");
-			TOOL_CLASSES.Insert("CombatKnife");
-			TOOL_CLASSES.Insert("FirefighterAxe");
-			TOOL_CLASSES.Insert("WoodAxe");
-			TOOL_CLASSES.Insert("Iceaxe");
-			TOOL_CLASSES.Insert("MeatTenderizer");
+			s_ToolClasses = new array<string>;
+			s_ToolClasses.Insert("Hatchet");
+			s_ToolClasses.Insert("Sickle");
+			s_ToolClasses.Insert("Blowtorch");
+			s_ToolClasses.Insert("Whetstone");
+			s_ToolClasses.Insert("ElectronicRepairKit");
+			s_ToolClasses.Insert("LugWrench");
+			s_ToolClasses.Insert("PipeWrench");
+			s_ToolClasses.Insert("Screwdriver");
+			s_ToolClasses.Insert("Hacksaw");
+			s_ToolClasses.Insert("HandSaw");
+			s_ToolClasses.Insert("Pliers");
+			s_ToolClasses.Insert("Hammer");
+			s_ToolClasses.Insert("CanOpener");
+			s_ToolClasses.Insert("SewingKit");
+			s_ToolClasses.Insert("LeatherSewingKit");
+			s_ToolClasses.Insert("Lockpick");
+			s_ToolClasses.Insert("Crowbar");
+			s_ToolClasses.Insert("Wrench");
+			s_ToolClasses.Insert("SledgeHammer");
+			s_ToolClasses.Insert("Cleaver");
+			s_ToolClasses.Insert("SteakKnife");
+			s_ToolClasses.Insert("KitchenKnife");
+			s_ToolClasses.Insert("Broom");
+			s_ToolClasses.Insert("Shovel");
+			s_ToolClasses.Insert("Pickaxe");
+			s_ToolClasses.Insert("Pitchfork");
+			s_ToolClasses.Insert("FarmingHoe");
+			s_ToolClasses.Insert("OrientalMachete");
+			s_ToolClasses.Insert("Machete");
+			s_ToolClasses.Insert("FangeKnife");
+			s_ToolClasses.Insert("KukriKnife");
+			s_ToolClasses.Insert("HuntingKnife");
+			s_ToolClasses.Insert("CombatKnife");
+			s_ToolClasses.Insert("FirefighterAxe");
+			s_ToolClasses.Insert("WoodAxe");
+			s_ToolClasses.Insert("Iceaxe");
+			s_ToolClasses.Insert("MeatTenderizer");
 		}
 
-		if (!VALID_CATEGORIES)
+		if (!s_ValidCategories)
 		{
-			VALID_CATEGORIES = new array<string>;
-			VALID_CATEGORIES.Insert("weapons");
-			VALID_CATEGORIES.Insert("magazines");
-			VALID_CATEGORIES.Insert("attachments");
-			VALID_CATEGORIES.Insert("ammo");
-			VALID_CATEGORIES.Insert("tools");
-			VALID_CATEGORIES.Insert("food");
-			VALID_CATEGORIES.Insert("clothing");
-			VALID_CATEGORIES.Insert("medical");
-			VALID_CATEGORIES.Insert("electronic");
-			VALID_CATEGORIES.Insert("base_building");
-			VALID_CATEGORIES.Insert("vehicle_parts");
-			VALID_CATEGORIES.Insert("other");
+			s_ValidCategories = new array<string>;
+			s_ValidCategories.Insert("weapons");
+			s_ValidCategories.Insert("magazines");
+			s_ValidCategories.Insert("attachments");
+			s_ValidCategories.Insert("ammo");
+			s_ValidCategories.Insert("tools");
+			s_ValidCategories.Insert("food");
+			s_ValidCategories.Insert("clothing");
+			s_ValidCategories.Insert("medical");
+			s_ValidCategories.Insert("electronic");
+			s_ValidCategories.Insert("base_building");
+			s_ValidCategories.Insert("vehicle_parts");
+			s_ValidCategories.Insert("other");
 		}
 
 		// Cache einmalig initialisieren (Client + Server)
-		m_itemConfigCache = new map<string, ref SilverItemConfigCache>;
+		m_SilverBarter_ItemConfigCache = new map<string, ref SilverItemConfigCache>;
 
 		// RPC-Handler registrieren (Client + Server)
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_OPEN_TRADE_MENU, this, "RpcRequestOpen");
@@ -132,22 +133,22 @@ class PluginSilverTrader extends PluginBase
 		SilverRPCManager.RegisterHandler(SilverRPC.SILVERRPC_DELIVERY_COMPLETE, this, "RpcHandleDeliveryComplete");
 
 		// Server-Initialisierung
-		if (g_Game.IsServer())
+		if (g_Game.IsDedicatedServer())
 		{
-			m_traderPoints = new map<int, TraderPoint>;
-			m_traderCache = new map<int, ref SilverTrader_ServerConfig>;
-			m_traderData = new map<int, ref SilverTrader_Data>;
-			m_dirtyTraders = new set<int>;
+			m_SilverBarter_TraderPoints = new map<int, TraderPoint>;
+			m_SilverBarter_TraderCache = new map<int, SilverTrader_ServerConfig>;
+			m_SilverBarter_TraderData = new map<int, ref SilverTrader_Data>;
+			m_SilverBarter_DirtyTraders = new set<int>;
 
-			m_rotatingTraderPoints = new map<int, TraderPoint>;
-			m_rotatingTraderCache = new map<int, ref SilverRotatingTrader_Config>;
-			m_rotatingTraderData = new map<int, ref SilverTrader_Data>;
-			m_rotationTimers = new map<int, float>;
-			m_openTraderMenus = new map<int, ref array<int>>;
+			m_SilverBarter_RotatingTraderPoints = new map<int, TraderPoint>;
+			m_SilverBarter_RotatingTraderCache = new map<int, SilverRotatingTrader_Config>;
+			m_SilverBarter_RotatingTraderData = new map<int, ref SilverTrader_Data>;
+			m_SilverBarter_RotationTimers = new map<int, float>;
+			m_SilverBarter_OpenTraderMenus = new map<int, ref array<int>>;
 
-			m_config = GetSilverBarterConfig();
-			m_rotatingConfig = GetSilverRotatingTradersConfig();
-			m_categoryOverridesConfig = GetSilverCategoryOverridesConfig();
+			m_SilverBarter_Config = SilverBarterConfigService.GetConfig();
+			m_SilverBarter_RotatingConfig = SilverBarterConfigService.GetRotatingConfig();
+			m_SilverBarter_CategoryOverridesConfig = SilverBarterConfigService.GetCategoryOverridesConfig();
 		}
 	}
 
@@ -155,28 +156,28 @@ class PluginSilverTrader extends PluginBase
 
 	void CloseTraderMenu()
 	{
-		if (m_traderMenu && m_traderMenu.m_active)
+		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
 		{
-			m_traderMenu.m_active = false;
+			m_SilverBarter_TraderMenu.m_SilverBarter_Active = false;
 		}
 	}
 
 	// Wird von SilverTraderMenu.OnHide() aufgerufen, um die Plugin-Referenz freizugeben
 	void ClearTraderMenuRef(SilverTraderMenu menu)
 	{
-		if (m_traderMenu == menu)
-			m_traderMenu = null;
+		if (m_SilverBarter_TraderMenu == menu)
+			m_SilverBarter_TraderMenu = null;
 	}
 
 	// Client: RPC empfangen - Menu oeffnen
 	void RpcRequestOpen(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!g_Game.IsClient())
+		if (g_Game.IsDedicatedServer())
 			return;
 
-		if (m_traderMenu && m_traderMenu.m_active)
+		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
 		{
-			m_traderMenu.m_active = false;
+			m_SilverBarter_TraderMenu.m_SilverBarter_Active = false;
 		}
 
 		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
@@ -258,18 +259,18 @@ class PluginSilverTrader extends PluginBase
 		// QuantityPrice-Classnames lesen (global, client-only)
 		int qpCount;
 		if (!ctx.Read(qpCount)) return;
-		m_quantityPriceClassnamesClient = new array<string>;
+		m_SilverBarter_QuantityPriceClassnamesClient = new array<string>;
 		for (int qp = 0; qp < qpCount; qp++)
 		{
 			string qpClass;
 			if (!ctx.Read(qpClass)) return;
-			m_quantityPriceClassnamesClient.Insert(qpClass);
+			m_SilverBarter_QuantityPriceClassnamesClient.Insert(qpClass);
 		}
 
 		// Kategorie-Overrides lesen (global, client-only)
 		int catOverrideCount;
 		if (!ctx.Read(catOverrideCount)) return;
-		m_categoryOverridesClient = new array<ref SilverCategoryOverride>;
+		m_SilverBarter_CategoryOverridesClient = new array<ref SilverCategoryOverride>;
 		for (int co = 0; co < catOverrideCount; co++)
 		{
 			string ovPattern, ovCategory;
@@ -282,13 +283,13 @@ class PluginSilverTrader extends PluginBase
 			catOverrideEntry.pattern = ovPattern;
 			catOverrideEntry.category = ovCategory;
 			catOverrideEntry.prefixOnly = ovPrefixOnly;
-			m_categoryOverridesClient.Insert(catOverrideEntry);
+			m_SilverBarter_CategoryOverridesClient.Insert(catOverrideEntry);
 		}
 
 		// Kategorie-Wert-Multiplikatoren lesen (global, client-only)
 		int catValueMultiplierCount;
 		if (!ctx.Read(catValueMultiplierCount)) return;
-		m_categoryValueMultipliersClient = new map<string, float>;
+		m_SilverBarter_CategoryValueMultipliersClient = new map<string, float>;
 		for (int cm = 0; cm < catValueMultiplierCount; cm++)
 		{
 			string cmCategory;
@@ -300,12 +301,12 @@ class PluginSilverTrader extends PluginBase
 				continue;
 
 			cmCategory.ToLower();
-			m_categoryValueMultipliersClient.Set(cmCategory, cmMultiplier);
+			m_SilverBarter_CategoryValueMultipliersClient.Set(cmCategory, cmMultiplier);
 		}
 
 		// Bereits gecachte Kategorien koennten ohne Override-Kenntnis berechnet worden sein
-		if (m_itemConfigCache)
-			m_itemConfigCache.Clear();
+		if (m_SilverBarter_ItemConfigCache)
+			m_SilverBarter_ItemConfigCache.Clear();
 
 		// Items lesen
 		int itemCount;
@@ -320,16 +321,16 @@ class PluginSilverTrader extends PluginBase
 			traderData.m_items.Insert(itemClass, itemQty);
 		}
 
-		m_traderMenu = new SilverTraderMenu;
-		m_traderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData, isRotating);
-		g_Game.GetUIManager().ShowScriptedMenu(m_traderMenu, null);
+		m_SilverBarter_TraderMenu = new SilverTraderMenu;
+		m_SilverBarter_TraderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData, isRotating);
+		g_Game.GetUIManager().ShowScriptedMenu(m_SilverBarter_TraderMenu, null);
 	}
 
 	// Client: RPC empfangen - Trade-Antwort
 	void RpcHandleTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
 	{
 		// Server-Handler
-		if (g_Game.IsServer())
+		if (g_Game.IsDedicatedServer())
 		{
 			RpcRequestTraderAction(ctx, sender);
 			return;
@@ -358,10 +359,10 @@ class PluginSilverTrader extends PluginBase
 			newData.m_items.Insert(itemClass, itemQty);
 		}
 
-		if (m_traderMenu && m_traderMenu.m_active)
+		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
 		{
-			m_traderMenu.UpdateMetadata(newData);
-			m_traderMenu.ClearBuySelection();
+			m_SilverBarter_TraderMenu.UpdateMetadata(newData);
+			m_SilverBarter_TraderMenu.ClearBuySelection();
 			// Sell-Refresh haengt NICHT mehr an dieser fruehen Trade-Antwort, sondern am
 			// spaeteren SILVERRPC_DELIVERY_COMPLETE - erst dann sind die Kauf-Items zugestellt.
 		}
@@ -373,21 +374,21 @@ class PluginSilverTrader extends PluginBase
 	// mit kleinem Sync-Puffer refreshen (siehe ScheduleSellRefresh).
 	void RpcHandleDeliveryComplete(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (g_Game.IsServer())
+		if (g_Game.IsDedicatedServer())
 			return;
 
-		if (m_traderMenu && m_traderMenu.m_active)
-			m_traderMenu.ScheduleSellRefresh();
+		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
+			m_SilverBarter_TraderMenu.ScheduleSellRefresh();
 	}
 
 	// ========== SERVER-SEITE ==========
 
 	void InitializeTraders()
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
-		if (!m_config || !m_config.m_traders)
+		if (!m_SilverBarter_Config || !m_SilverBarter_Config.m_traders)
 		{
 			Print("[SilverBarter] ERROR: Config not loaded!");
 			return;
@@ -401,7 +402,7 @@ class PluginSilverTrader extends PluginBase
 
 		set<int> seenIds = new set<int>;
 
-		foreach (SilverTrader_ServerConfig trader : m_config.m_traders)
+		foreach (SilverTrader_ServerConfig trader : m_SilverBarter_Config.m_traders)
 		{
 			if (!trader || !trader.ValidateAndNormalize())
 			{
@@ -417,12 +418,12 @@ class PluginSilverTrader extends PluginBase
 			SpawnTrader(trader);
 		}
 
-		DebugLog(m_config.m_traders.Count().ToString() + " Trader initialisiert.");
+		DebugLog(m_SilverBarter_Config.m_traders.Count().ToString() + " Trader initialisiert.");
 
 		// Rotierende Haendler initialisieren (gleiche seenIds - Trader-IDs sind global eindeutig)
-		if (m_rotatingConfig && m_rotatingConfig.m_rotatingTraders && m_rotatingConfig.m_rotatingTraders.Count() > 0)
+		if (m_SilverBarter_RotatingConfig && m_SilverBarter_RotatingConfig.m_rotatingTraders && m_SilverBarter_RotatingConfig.m_rotatingTraders.Count() > 0)
 		{
-			foreach (SilverRotatingTrader_Config rotTrader : m_rotatingConfig.m_rotatingTraders)
+			foreach (SilverRotatingTrader_Config rotTrader : m_SilverBarter_RotatingConfig.m_rotatingTraders)
 			{
 				if (!rotTrader || !rotTrader.ValidateAndNormalize())
 				{
@@ -437,7 +438,7 @@ class PluginSilverTrader extends PluginBase
 				seenIds.Insert(rotTrader.m_traderId);
 				SpawnRotatingTrader(rotTrader);
 			}
-			DebugLog(m_rotatingConfig.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
+			DebugLog(m_SilverBarter_RotatingConfig.m_rotatingTraders.Count().ToString() + " Rotating Trader initialisiert.");
 		}
 	}
 
@@ -505,14 +506,14 @@ class PluginSilverTrader extends PluginBase
 			}
 		}
 
-		m_traderData.Insert(trader.m_traderId, traderData);
+		m_SilverBarter_TraderData.Insert(trader.m_traderId, traderData);
 
 		// Trader-NPC spawnen
 		Object traderObj = g_Game.CreateObject(trader.m_classname, trader.m_position);
 		if (!traderObj)
 		{
 			Print("[SilverBarter] ERROR: Could not spawn trader NPC: " + trader.m_classname + " – cleaning up traderData.");
-			m_traderData.Remove(trader.m_traderId);
+			m_SilverBarter_TraderData.Remove(trader.m_traderId);
 			return;
 		}
 
@@ -544,12 +545,12 @@ class PluginSilverTrader extends PluginBase
 		{
 			Print("[SilverBarter] ERROR: TraderPoint creation failed for trader " + trader.m_traderId.ToString() + " – cleaning up NPC and traderData.");
 			g_Game.ObjectDelete(traderObj);
-			m_traderData.Remove(trader.m_traderId);
+			m_SilverBarter_TraderData.Remove(trader.m_traderId);
 			return;
 		}
 
-		m_traderPoints.Insert(trader.m_traderId, traderPoint);
-		m_traderCache.Insert(trader.m_traderId, trader);
+		m_SilverBarter_TraderPoints.Insert(trader.m_traderId, traderPoint);
+		m_SilverBarter_TraderCache.Insert(trader.m_traderId, trader);
 
 		DebugLog("Trader " + trader.m_traderId.ToString() + " spawned.");
 	}
@@ -564,7 +565,7 @@ class PluginSilverTrader extends PluginBase
 			return;
 		}
 
-		if (m_rotatingTraderCache.Contains(trader.m_traderId))
+		if (m_SilverBarter_RotatingTraderCache.Contains(trader.m_traderId))
 		{
 			Print("[SilverBarter] ERROR: Duplicate rotating trader ID, skipped: " + trader.m_traderId.ToString());
 			return;
@@ -624,10 +625,10 @@ class PluginSilverTrader extends PluginBase
 		traderPoint.InitTraderPoint(trader.m_traderId, traderObj, true);
 
 		// Erst nach erfolgreichem NPC- und TraderPoint-Spawn in alle Maps eintragen
-		m_rotatingTraderData.Insert(trader.m_traderId, traderData);
-		m_rotatingTraderPoints.Insert(trader.m_traderId, traderPoint);
-		m_rotatingTraderCache.Insert(trader.m_traderId, trader);
-		m_rotationTimers.Insert(trader.m_traderId, 0);
+		m_SilverBarter_RotatingTraderData.Insert(trader.m_traderId, traderData);
+		m_SilverBarter_RotatingTraderPoints.Insert(trader.m_traderId, traderPoint);
+		m_SilverBarter_RotatingTraderCache.Insert(trader.m_traderId, trader);
+		m_SilverBarter_RotationTimers.Insert(trader.m_traderId, 0);
 
 		DebugLog("Rotating Trader " + trader.m_traderId.ToString() + " spawned with " + traderData.m_items.Count().ToString() + " items.");
 	}
@@ -703,18 +704,18 @@ class PluginSilverTrader extends PluginBase
 
 	private void CheckRotationTimers(float delta_time)
 	{
-		if (!m_rotatingTraderCache || !m_rotationTimers)
+		if (!m_SilverBarter_RotatingTraderCache || !m_SilverBarter_RotationTimers)
 			return;
 
-		foreach (int traderId, SilverRotatingTrader_Config config : m_rotatingTraderCache)
+		foreach (int traderId, SilverRotatingTrader_Config config : m_SilverBarter_RotatingTraderCache)
 		{
 			if (!config || config.m_rotationIntervalMinutes <= 0)
 				continue;
 
 			float timer = 0;
-			if (m_rotationTimers.Contains(traderId))
+			if (m_SilverBarter_RotationTimers.Contains(traderId))
 			{
-				timer = m_rotationTimers.Get(traderId);
+				timer = m_SilverBarter_RotationTimers.Get(traderId);
 			}
 
 			timer = timer + delta_time;
@@ -725,7 +726,7 @@ class PluginSilverTrader extends PluginBase
 				timer = 0;
 
 				SilverTrader_Data traderData;
-				if (m_rotatingTraderData.Find(traderId, traderData))
+				if (m_SilverBarter_RotatingTraderData.Find(traderId, traderData))
 				{
 					RotateTraderPool(config, traderData);
 					SyncRotatingTraderToClients(traderId);
@@ -733,19 +734,19 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 
-			m_rotationTimers.Set(traderId, timer);
+			m_SilverBarter_RotationTimers.Set(traderId, timer);
 		}
 	}
 
 	private void SyncRotatingTraderToClients(int traderId)
 	{
 		SilverTrader_Data traderData;
-		if (!m_rotatingTraderData.Find(traderId, traderData))
+		if (!m_SilverBarter_RotatingTraderData.Find(traderId, traderData))
 			return;
 
 		// Nur Spieler mit offenem Menue dieses Traders benachrichtigen
 		array<int> viewerIds;
-		if (!m_openTraderMenus || !m_openTraderMenus.Find(traderId, viewerIds) || !viewerIds || viewerIds.Count() == 0)
+		if (!m_SilverBarter_OpenTraderMenus || !m_SilverBarter_OpenTraderMenus.Find(traderId, viewerIds) || !viewerIds || viewerIds.Count() == 0)
 			return;
 
 		// Items einmal zusammenstellen (fuer alle Viewer identisch)
@@ -774,7 +775,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (viewerIds.Count() == 0)
 		{
-			m_openTraderMenus.Remove(traderId);
+			m_SilverBarter_OpenTraderMenus.Remove(traderId);
 			return;
 		}
 
@@ -807,7 +808,7 @@ class PluginSilverTrader extends PluginBase
 	// Client: Empfaengt neues Rotating-Trader Inventar nach Rotation
 	void RpcRotatingTraderSync(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!g_Game.IsClient())
+		if (g_Game.IsDedicatedServer())
 			return;
 
 		int traderId;
@@ -827,16 +828,16 @@ class PluginSilverTrader extends PluginBase
 			newData.m_items.Insert(itemClass, itemQty);
 		}
 
-		if (m_traderMenu && m_traderMenu.m_active && m_traderMenu.m_traderId == traderId)
+		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active && m_SilverBarter_TraderMenu.m_SilverBarter_TraderId == traderId)
 		{
-			m_traderMenu.UpdateMetadata(newData);
+			m_SilverBarter_TraderMenu.UpdateMetadata(newData);
 		}
 	}
 
 	// Prueft ob eine traderId zu einem rotierenden Haendler gehoert
 	bool IsRotatingTrader(int traderId)
 	{
-		if (m_rotatingTraderCache && m_rotatingTraderCache.Contains(traderId))
+		if (m_SilverBarter_RotatingTraderCache && m_SilverBarter_RotatingTraderCache.Contains(traderId))
 			return true;
 		return false;
 	}
@@ -899,7 +900,7 @@ class PluginSilverTrader extends PluginBase
 	void SendTraderMenuOpen(PlayerBase player, int traderId)
 	{
 
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		if (!player || !player.GetIdentity())
@@ -913,45 +914,45 @@ class PluginSilverTrader extends PluginBase
 		if (isRotating)
 		{
 			SilverRotatingTrader_Config rotConfig;
-			if (!m_rotatingTraderCache.Find(traderId, rotConfig))
+			if (!m_SilverBarter_RotatingTraderCache.Find(traderId, rotConfig))
 				return;
 			trader = rotConfig;
-			if (!m_rotatingTraderData.Find(traderId, traderData))
+			if (!m_SilverBarter_RotatingTraderData.Find(traderId, traderData))
 				return;
 		}
 		else
 		{
 			SilverTrader_ServerConfig stdConfig;
-			if (!m_traderCache.Find(traderId, stdConfig))
+			if (!m_SilverBarter_TraderCache.Find(traderId, stdConfig))
 				return;
 			trader = stdConfig;
-			if (!m_traderData.Find(traderId, traderData))
+			if (!m_SilverBarter_TraderData.Find(traderId, traderData))
 				return;
 		}
 
 		TraderPoint traderPoint;
 		if (isRotating)
 		{
-			if (!m_rotatingTraderPoints.Find(traderId, traderPoint))
+			if (!m_SilverBarter_RotatingTraderPoints.Find(traderId, traderPoint))
 				return;
 		}
 		else
 		{
-			if (!m_traderPoints.Find(traderId, traderPoint))
+			if (!m_SilverBarter_TraderPoints.Find(traderId, traderPoint))
 				return;
 		}
 
 		// Spieler als aktiver Viewer dieses Traders eintragen (fuer selektiven Sync)
 		int openPlayerId = player.GetIdentity().GetPlayerId();
-		foreach (int oldTid, array<int> oldViewers : m_openTraderMenus)
+		foreach (int oldTid, array<int> oldViewers : m_SilverBarter_OpenTraderMenus)
 		{
 			oldViewers.RemoveItem(openPlayerId);
 		}
 		array<int> viewers;
-		if (!m_openTraderMenus.Find(traderId, viewers))
+		if (!m_SilverBarter_OpenTraderMenus.Find(traderId, viewers))
 		{
 			viewers = new array<int>;
-			m_openTraderMenus.Insert(traderId, viewers);
+			m_SilverBarter_OpenTraderMenus.Insert(traderId, viewers);
 		}
 		if (viewers.Find(openPlayerId) == -1)
 			viewers.Insert(openPlayerId);
@@ -1037,19 +1038,19 @@ class PluginSilverTrader extends PluginBase
 
 		// QuantityPrice-Classnames (global)
 		int qpCount = 0;
-		if (m_config && m_config.m_quantityPriceClassnames)
-			qpCount = m_config.m_quantityPriceClassnames.Count();
+		if (m_SilverBarter_Config && m_SilverBarter_Config.m_quantityPriceClassnames)
+			qpCount = m_SilverBarter_Config.m_quantityPriceClassnames.Count();
 		rpc.Write(qpCount);
 		for (int qp = 0; qp < qpCount; qp++)
 		{
-			rpc.Write(m_config.m_quantityPriceClassnames.Get(qp));
+			rpc.Write(m_SilverBarter_Config.m_quantityPriceClassnames.Get(qp));
 		}
 
 		// Kategorie-Overrides (global, nur wenn aktiviert; ungueltige Eintraege ueberspringen)
 		int catOverrideCount = 0;
-		if (m_categoryOverridesConfig && m_categoryOverridesConfig.m_enabled && m_categoryOverridesConfig.m_categoryOverrides)
+		if (m_SilverBarter_CategoryOverridesConfig && m_SilverBarter_CategoryOverridesConfig.m_enabled && m_SilverBarter_CategoryOverridesConfig.m_categoryOverrides)
 		{
-			foreach (SilverCategoryOverride countEntry : m_categoryOverridesConfig.m_categoryOverrides)
+			foreach (SilverCategoryOverride countEntry : m_SilverBarter_CategoryOverridesConfig.m_categoryOverrides)
 			{
 				if (countEntry && countEntry.pattern != "" && countEntry.category != "")
 					catOverrideCount++;
@@ -1059,7 +1060,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (catOverrideCount > 0)
 		{
-			foreach (SilverCategoryOverride writeEntry : m_categoryOverridesConfig.m_categoryOverrides)
+			foreach (SilverCategoryOverride writeEntry : m_SilverBarter_CategoryOverridesConfig.m_categoryOverrides)
 			{
 				if (!writeEntry || writeEntry.pattern == "" || writeEntry.category == "")
 					continue;
@@ -1072,9 +1073,9 @@ class PluginSilverTrader extends PluginBase
 
 		// Kategorie-Wert-Multiplikatoren (global; ungueltige Eintraege ueberspringen)
 		int catValueMultiplierCount = 0;
-		if (m_config && m_config.m_categoryValueMultipliers)
+		if (m_SilverBarter_Config && m_SilverBarter_Config.m_categoryValueMultipliers)
 		{
-			foreach (string countCategory, float countMultiplier : m_config.m_categoryValueMultipliers)
+			foreach (string countCategory, float countMultiplier : m_SilverBarter_Config.m_categoryValueMultipliers)
 			{
 				if (countCategory != "" && countMultiplier > 0 && IsValidCategory(countCategory))
 					catValueMultiplierCount++;
@@ -1084,7 +1085,7 @@ class PluginSilverTrader extends PluginBase
 
 		if (catValueMultiplierCount > 0)
 		{
-			foreach (string writeCategory, float writeMultiplier : m_config.m_categoryValueMultipliers)
+			foreach (string writeCategory, float writeMultiplier : m_SilverBarter_Config.m_categoryValueMultipliers)
 			{
 				if (writeCategory == "" || writeMultiplier <= 0 || !IsValidCategory(writeCategory))
 					continue;
@@ -1111,7 +1112,7 @@ class PluginSilverTrader extends PluginBase
 
 	void RpcRequestTraderMenuClose(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		int traderId;
@@ -1125,17 +1126,17 @@ class PluginSilverTrader extends PluginBase
 			return;
 
 		array<int> viewers;
-		if (m_openTraderMenus && m_openTraderMenus.Find(traderId, viewers))
+		if (m_SilverBarter_OpenTraderMenus && m_SilverBarter_OpenTraderMenus.Find(traderId, viewers))
 		{
 			viewers.RemoveItem(sender.GetPlayerId());
 			if (viewers.Count() == 0)
-				m_openTraderMenus.Remove(traderId);
+				m_SilverBarter_OpenTraderMenus.Remove(traderId);
 		}
 	}
 
 	void RpcRequestTraderAction(ParamsReadContext ctx, PlayerIdentity sender)
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
 		PlayerBase player = GetPlayerByIdentity(sender);
@@ -1228,19 +1229,19 @@ class PluginSilverTrader extends PluginBase
 		if (isRotatingTrade)
 		{
 			SilverRotatingTrader_Config rotConfig;
-			if (!m_rotatingTraderCache.Find(traderId, rotConfig))
+			if (!m_SilverBarter_RotatingTraderCache.Find(traderId, rotConfig))
 				return;
 			traderInfo = rotConfig;
-			if (!m_rotatingTraderData.Find(traderId, traderData))
+			if (!m_SilverBarter_RotatingTraderData.Find(traderId, traderData))
 				return;
 		}
 		else
 		{
 			SilverTrader_ServerConfig stdConfig;
-			if (!m_traderCache.Find(traderId, stdConfig))
+			if (!m_SilverBarter_TraderCache.Find(traderId, stdConfig))
 				return;
 			traderInfo = stdConfig;
-			if (!m_traderData.Find(traderId, traderData))
+			if (!m_SilverBarter_TraderData.Find(traderId, traderData))
 				return;
 		}
 
@@ -1462,7 +1463,7 @@ class PluginSilverTrader extends PluginBase
 							buyMagazine.ServerSetAmmoCount(0);
 						}
 					}
-					else if (GetOrCreateItemCache(buyClassname4).isLiquidContainer)
+					else if (GetOrCreateItemCache(buyClassname4).m_IsLiquidContainer)
 					{
 						buyEntity.SetQuantityNormalized(0);
 					}
@@ -1566,7 +1567,7 @@ class PluginSilverTrader extends PluginBase
 		}
 
 		#ifdef ZenSkills
-		if (tradeSuccess && totalSellValue > 0 && player && GetSilverBarterConfig().m_zenSkillsXPEnabled)
+		if (tradeSuccess && totalSellValue > 0 && player && SilverBarterConfigService.GetConfig().m_zenSkillsXPEnabled)
 		{
 			int earnedEXP = Math.Min(Math.Floor(totalSellValue / 100.0), 25);
 
@@ -1595,7 +1596,7 @@ class PluginSilverTrader extends PluginBase
 		// Trader als dirty markieren (nur normale Trader persistent speichern)
 		if (tradeSuccess && !isRotatingTrade)
 		{
-			m_dirtyTraders.Insert(traderId);
+			m_SilverBarter_DirtyTraders.Insert(traderId);
 		}
 
 		// Antwort an Client senden
@@ -1826,7 +1827,7 @@ class PluginSilverTrader extends PluginBase
 	void SaveTraderData(int traderId)
 	{
 		SilverTrader_Data traderData;
-		if (m_traderData.Find(traderId, traderData))
+		if (m_SilverBarter_TraderData.Find(traderId, traderData))
 		{
 			string dataPath = DATA_FOLDER + "trader_" + traderId.ToString() + ".json";
 			traderData.SaveToJson(dataPath);
@@ -1835,38 +1836,38 @@ class PluginSilverTrader extends PluginBase
 
 	void SaveDirtyTraderData()
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
-		if (!m_dirtyTraders || m_dirtyTraders.Count() == 0)
+		if (!m_SilverBarter_DirtyTraders || m_SilverBarter_DirtyTraders.Count() == 0)
 			return;
 
-		foreach (int traderId : m_dirtyTraders)
+		foreach (int traderId : m_SilverBarter_DirtyTraders)
 		{
 			SaveTraderData(traderId);
 		}
 
-		DebugLog(m_dirtyTraders.Count().ToString() + " trader data saved.");
+		DebugLog(m_SilverBarter_DirtyTraders.Count().ToString() + " trader data saved.");
 
-		m_dirtyTraders.Clear();
+		m_SilverBarter_DirtyTraders.Clear();
 	}
 
 	void SaveAllTraderData()
 	{
-		if (!g_Game.IsServer())
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
-		if (!m_traderData)
+		if (!m_SilverBarter_TraderData)
 			return;
 
-		foreach (int traderId, SilverTrader_Data data : m_traderData)
+		foreach (int traderId, SilverTrader_Data data : m_SilverBarter_TraderData)
 		{
 			SaveTraderData(traderId);
 		}
 
-		if (m_dirtyTraders)
+		if (m_SilverBarter_DirtyTraders)
 		{
-			m_dirtyTraders.Clear();
+			m_SilverBarter_DirtyTraders.Clear();
 		}
 
 		DebugLog("All trader data saved (shutdown).");
@@ -1896,39 +1897,16 @@ class PluginSilverTrader extends PluginBase
 
 	override void OnUpdate(float delta_time)
 	{
-		if (!g_Game.IsServer())
+		super.OnUpdate(delta_time);
+
+		if (!g_Game || !g_Game.IsDedicatedServer())
 			return;
 
-		// Trader-Tick
-		m_updateTimer = m_updateTimer + delta_time;
-		if (m_updateTimer > 1.0)
-		{
-			m_updateTimer = 0;
-			foreach (int traderId, TraderPoint point : m_traderPoints)
-			{
-				if (point)
-				{
-					point.OnTick();
-				}
-			}
-			// Rotierende Trader ebenfalls ticken
-			if (m_rotatingTraderPoints)
-			{
-				foreach (int rotTraderId, TraderPoint rotPoint : m_rotatingTraderPoints)
-				{
-					if (rotPoint)
-					{
-						rotPoint.OnTick();
-					}
-				}
-			}
-		}
-
 		// Periodisches Speichern (nur dirty Trader)
-		m_saveTimer = m_saveTimer + delta_time;
-		if (m_saveTimer > SAVE_INTERVAL)
+		m_SilverBarter_SaveTimer = m_SilverBarter_SaveTimer + delta_time;
+		if (m_SilverBarter_SaveTimer > SAVE_INTERVAL)
 		{
-			m_saveTimer = 0;
+			m_SilverBarter_SaveTimer = 0;
 			SaveDirtyTraderData();
 		}
 
@@ -1937,16 +1915,16 @@ class PluginSilverTrader extends PluginBase
 
 		// ZenMap Marker verzoegert setzen (warten bis ZenMap-Plugin bereit ist)
 		#ifdef ZenMap
-		if (!m_zenMapMarkersSet && m_rotatingTraderCache)
+		if (!m_SilverBarter_ZenMapMarkersSet && m_SilverBarter_RotatingTraderCache)
 		{
 			PluginZenMapMarkers zenCheck = PluginZenMapMarkers.Cast(GetPlugin(PluginZenMapMarkers));
 			if (zenCheck)
 			{
-				foreach (int zenId, SilverRotatingTrader_Config zenCfg : m_rotatingTraderCache)
+				foreach (int zenId, SilverRotatingTrader_Config zenCfg : m_SilverBarter_RotatingTraderCache)
 				{
 					SetZenMapMarker(zenCfg);
 				}
-				m_zenMapMarkersSet = true;
+				m_SilverBarter_ZenMapMarkersSet = true;
 				DebugLog("ZenMap Marker fuer rotierende Haendler gesetzt.");
 			}
 		}
@@ -1955,38 +1933,46 @@ class PluginSilverTrader extends PluginBase
 
 	override void OnDestroy()
 	{
+		CGame game = g_Game;
+		if (game)
+		{
+			game.GetCallQueue(CALL_CATEGORY_SYSTEM).Remove(this.FinishDelivery);
+			game.GetCallQueue(CALL_CATEGORY_SYSTEM).Remove(this.DeliverNext);
+		}
+
+		SilverRPCManager.UnregisterInstance(this);
 		SaveAllTraderData();
 
-		CGame game = GetGame();
-
-		if (m_traderPoints)
+		if (game && m_SilverBarter_TraderPoints)
 		{
-			foreach (int id, TraderPoint obj : m_traderPoints)
+			foreach (int id, TraderPoint obj : m_SilverBarter_TraderPoints)
 			{
-				if (obj && game)
+				if (obj)
 					game.ObjectDelete(obj);
 			}
 		}
 
 		// ZenMap Marker entfernen
 		#ifdef ZenMap
-		if (m_rotatingTraderCache)
+		if (m_SilverBarter_RotatingTraderCache)
 		{
-			foreach (int zenTraderId, SilverRotatingTrader_Config zenConfig : m_rotatingTraderCache)
+			foreach (int zenTraderId, SilverRotatingTrader_Config zenConfig : m_SilverBarter_RotatingTraderCache)
 			{
 				RemoveZenMapMarker(zenConfig);
 			}
 		}
 		#endif
 
-		if (m_rotatingTraderPoints)
+		if (game && m_SilverBarter_RotatingTraderPoints)
 		{
-			foreach (int rotId, TraderPoint rotObj : m_rotatingTraderPoints)
+			foreach (int rotId, TraderPoint rotObj : m_SilverBarter_RotatingTraderPoints)
 			{
-				if (rotObj && game)
+				if (rotObj)
 					game.ObjectDelete(rotObj);
 			}
 		}
+
+		super.OnDestroy();
 	}
 
 	// ========== BERECHNUNGS-FUNKTIONEN (Client + Server) ==========
@@ -2066,7 +2052,7 @@ class PluginSilverTrader extends PluginBase
 	// Wert-Multiplikator fuer die Item-Kategorie: zuerst trader-spezifisch, danach global (Server-Config bzw. client-gesyncte Liste)
 	float GetCategoryValueMultiplier(SilverTrader_Info trader, string classname)
 	{
-		string category = GetOrCreateItemCache(classname).category;
+		string category = GetOrCreateItemCache(classname).m_Category;
 		if (category == "" || !IsValidCategory(category))
 			return 1.0;
 
@@ -2077,16 +2063,16 @@ class PluginSilverTrader extends PluginBase
 				return traderMultiplier;
 		}
 
-		if (m_config && m_config.m_categoryValueMultipliers)
+		if (m_SilverBarter_Config && m_SilverBarter_Config.m_categoryValueMultipliers)
 		{
 			float serverMultiplier;
-			if (m_config.m_categoryValueMultipliers.Find(category, serverMultiplier) && serverMultiplier > 0)
+			if (m_SilverBarter_Config.m_categoryValueMultipliers.Find(category, serverMultiplier) && serverMultiplier > 0)
 				return serverMultiplier;
 		}
-		else if (m_categoryValueMultipliersClient)
+		else if (m_SilverBarter_CategoryValueMultipliersClient)
 		{
 			float clientMultiplier;
-			if (m_categoryValueMultipliersClient.Find(category, clientMultiplier) && clientMultiplier > 0)
+			if (m_SilverBarter_CategoryValueMultipliersClient.Find(category, clientMultiplier) && clientMultiplier > 0)
 				return clientMultiplier;
 		}
 
@@ -2096,9 +2082,9 @@ class PluginSilverTrader extends PluginBase
 	// Kategorie-Override fuer classname suchen (Server-Config wenn aktiv, sonst client-gesyncte Liste)
 	private string GetCategoryOverride(string classname)
 	{
-		if (m_categoryOverridesConfig && m_categoryOverridesConfig.m_enabled && m_categoryOverridesConfig.m_categoryOverrides)
+		if (m_SilverBarter_CategoryOverridesConfig && m_SilverBarter_CategoryOverridesConfig.m_enabled && m_SilverBarter_CategoryOverridesConfig.m_categoryOverrides)
 		{
-			foreach (SilverCategoryOverride ovServer : m_categoryOverridesConfig.m_categoryOverrides)
+			foreach (SilverCategoryOverride ovServer : m_SilverBarter_CategoryOverridesConfig.m_categoryOverrides)
 			{
 				if (MatchCategoryOverride(classname, ovServer))
 				{
@@ -2108,9 +2094,9 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 		}
-		else if (m_categoryOverridesClient)
+		else if (m_SilverBarter_CategoryOverridesClient)
 		{
-			foreach (SilverCategoryOverride ovClient : m_categoryOverridesClient)
+			foreach (SilverCategoryOverride ovClient : m_SilverBarter_CategoryOverridesClient)
 			{
 				if (MatchCategoryOverride(classname, ovClient))
 				{
@@ -2144,22 +2130,22 @@ class PluginSilverTrader extends PluginBase
 	private bool IsValidCategory(string category)
 	{
 		category.ToLower();
-		return VALID_CATEGORIES && VALID_CATEGORIES.Find(category) >= 0;
+		return s_ValidCategories && s_ValidCategories.Find(category) >= 0;
 	}
 
 	SilverItemConfigCache GetOrCreateItemCache(string classname)
 	{
 		SilverItemConfigCache cache;
-		if (m_itemConfigCache && m_itemConfigCache.Find(classname, cache))
+		if (m_SilverBarter_ItemConfigCache && m_SilverBarter_ItemConfigCache.Find(classname, cache))
 			return cache;
 
 		cache = new SilverItemConfigCache();
-		cache.itemCapacity     = 1;
-		cache.isLiquidContainer = false;
-		cache.maxStackSize     = 0;
-		cache.stackedUnit      = "";
-		cache.isAmmo           = false;
-		cache.canBeSplit       = false;
+		cache.m_ItemCapacity     = 1;
+		cache.m_IsLiquidContainer = false;
+		cache.m_MaxStackSize     = 0;
+		cache.m_StackedUnit      = "";
+		cache.m_IsAmmo           = false;
+		cache.m_CanBeSplit       = false;
 
 		string cfgRoot = "";
 		if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
@@ -2176,29 +2162,29 @@ class PluginSilverTrader extends PluginBase
 			vector itemSize = "1 1 0";
 			if (g_Game.ConfigIsExisting(base + " itemSize"))
 				itemSize = g_Game.ConfigGetVector(base + " itemSize");
-			cache.itemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
+			cache.m_ItemCapacity = (int)Math.Max(1, itemSize[0] * itemSize[1]);
 
-			cache.isLiquidContainer = g_Game.ConfigIsExisting(base + " liquidContainerType");
+			cache.m_IsLiquidContainer = g_Game.ConfigIsExisting(base + " liquidContainerType");
 
 			if (cfgRoot == CFG_MAGAZINESPATH)
 			{
 				if (g_Game.ConfigIsExisting(base + " count"))
-					cache.maxStackSize = g_Game.ConfigGetInt(base + " count");
+					cache.m_MaxStackSize = g_Game.ConfigGetInt(base + " count");
 			}
 			else
 			{
 				if (g_Game.ConfigIsExisting(base + " varQuantityMax"))
-					cache.maxStackSize = g_Game.ConfigGetInt(base + " varQuantityMax");
+					cache.m_MaxStackSize = g_Game.ConfigGetInt(base + " varQuantityMax");
 			}
 
 			if (g_Game.ConfigIsExisting(base + " stackedUnit"))
-				cache.stackedUnit = g_Game.ConfigGetTextOut(base + " stackedUnit");
+				cache.m_StackedUnit = g_Game.ConfigGetTextOut(base + " stackedUnit");
 
 			if (cfgRoot == CFG_VEHICLESPATH && g_Game.ConfigIsExisting(base + " canBeSplit"))
-				cache.canBeSplit = g_Game.ConfigGetInt(base + " canBeSplit") == 1;
+				cache.m_CanBeSplit = g_Game.ConfigGetInt(base + " canBeSplit") == 1;
 		}
 
-		cache.isAmmo = g_Game.IsKindOf(classname, "Ammunition_Base");
+		cache.m_IsAmmo = g_Game.IsKindOf(classname, "Ammunition_Base");
 
 		// Kategorie fuer FilterByCategories einmalig bestimmen
 		string cat = "other";
@@ -2207,7 +2193,7 @@ class PluginSilverTrader extends PluginBase
 		{
 			cat = "weapons";
 		}
-		else if (cache.isAmmo || classname.IndexOf("AmmoBox") == 0)
+		else if (cache.m_IsAmmo || classname.IndexOf("AmmoBox") == 0)
 		{
 			cat = "ammo";
 		}
@@ -2215,9 +2201,9 @@ class PluginSilverTrader extends PluginBase
 		{
 			cat = "magazines";
 		}
-		else if (TOOL_CLASSES)
+		else if (s_ToolClasses)
 		{
-			foreach (string tc : TOOL_CLASSES)
+			foreach (string tc : s_ToolClasses)
 			{
 				if (g_Game.IsKindOf(classname, tc))
 				{
@@ -2279,18 +2265,18 @@ class PluginSilverTrader extends PluginBase
 			cat = overrideCategory;
 
 		cat.ToLower();
-		cache.category = cat;
+		cache.m_Category = cat;
 
-		if (!m_itemConfigCache)
-			m_itemConfigCache = new map<string, ref SilverItemConfigCache>;
-		m_itemConfigCache.Insert(classname, cache);
+		if (!m_SilverBarter_ItemConfigCache)
+			m_SilverBarter_ItemConfigCache = new map<string, ref SilverItemConfigCache>;
+		m_SilverBarter_ItemConfigCache.Insert(classname, cache);
 		return cache;
 	}
 
 	float CalculateTraderItemQuantityMax(SilverTrader_Info trader, string classname)
 	{
 		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
-		return Math.Round(((float)trader.m_storageMaxSize) / cache.itemCapacity);
+		return Math.Round(((float)trader.m_storageMaxSize) / cache.m_ItemCapacity);
 	}
 
 	float CalculateItemQuantity01(ItemBase item)
@@ -2333,18 +2319,18 @@ class PluginSilverTrader extends PluginBase
 
 	bool IsQuantityPriceItem(string classname)
 	{
-		if (m_config && m_config.m_quantityPriceClassnames)
+		if (m_SilverBarter_Config && m_SilverBarter_Config.m_quantityPriceClassnames)
 		{
-			foreach (string qpClass : m_config.m_quantityPriceClassnames)
+			foreach (string qpClass : m_SilverBarter_Config.m_quantityPriceClassnames)
 			{
 				if (g_Game.IsKindOf(classname, qpClass))
 					return true;
 			}
 		}
 
-		if (m_quantityPriceClassnamesClient)
+		if (m_SilverBarter_QuantityPriceClassnamesClient)
 		{
-			foreach (string qpClass2 : m_quantityPriceClassnamesClient)
+			foreach (string qpClass2 : m_SilverBarter_QuantityPriceClassnamesClient)
 			{
 				if (g_Game.IsKindOf(classname, qpClass2))
 					return true;
@@ -2376,11 +2362,11 @@ class PluginSilverTrader extends PluginBase
 	{
 		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
 
-		if (cache.isLiquidContainer)
+		if (cache.m_IsLiquidContainer)
 			return 1;
 
-		if (cache.maxStackSize > 0 && (cache.stackedUnit == "pc." || cache.isAmmo))
-			return 1.0 / cache.maxStackSize;
+		if (cache.m_MaxStackSize > 0 && (cache.m_StackedUnit == "pc." || cache.m_IsAmmo))
+			return 1.0 / cache.m_MaxStackSize;
 
 		return 1;
 	}
@@ -2447,7 +2433,7 @@ class PluginSilverTrader extends PluginBase
 	bool FilterByCategories(array<string> categories, array<bool> enabledCategories, string classname)
 	{
 		SilverItemConfigCache cache = GetOrCreateItemCache(classname);
-		return IsCategoryEnabled(categories, enabledCategories, cache.category);
+		return IsCategoryEnabled(categories, enabledCategories, cache.m_Category);
 	}
 
 	bool CanSellItem(SilverTrader_Info traderInfo, ItemBase item)
@@ -2540,7 +2526,7 @@ class PluginSilverTrader extends PluginBase
 	// Debug-Log Hilfsfunktion (nur ausgeben wenn debugMode aktiv)
 	void DebugLog(string message)
 	{
-		if (m_config && m_config.m_debugMode)
+		if (m_SilverBarter_Config && m_SilverBarter_Config.m_debugMode)
 		{
 			Print("[SilverBarter] " + message);
 		}
