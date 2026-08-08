@@ -1,0 +1,1 @@
+const int SILVER_MENU_ITEM_INSPECT = 98761;

@@ -16,6 +16,7 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	bool m_SilverBarter_Active = false;
 	bool m_SilverBarter_Dirty = false;
+	bool m_SilverBarter_InspectTransition = false;
 
 	int m_SilverBarter_TraderId;
 	bool m_SilverBarter_IsRotatingTrader;
@@ -480,6 +481,10 @@ class SilverTraderMenu extends UIScriptedMenu
 		}
 
 		// PreviewWidget bleibt leer - wird lazy befüllt
+		ItemPreviewWidget buyPreview = ItemPreviewWidget.Cast(itemBuy.FindAnyWidget("ItemPreviewWidget"));
+		if (buyPreview)
+			buyPreview.SetUserID(index);
+
 		string displayName = GetItemDisplayName(classname);
 
 		WidgetSetWidth(itemBuy, "ItemNameWidget", contentWidth - 220);
@@ -1040,6 +1045,7 @@ class SilverTraderMenu extends UIScriptedMenu
 	override void OnShow()
 	{
 		super.OnShow();
+		m_SilverBarter_InspectTransition = false;
 		g_Game.GetInput().ChangeGameFocus(1);
 		SetFocus(layoutRoot);
 
@@ -1054,6 +1060,9 @@ class SilverTraderMenu extends UIScriptedMenu
 	override void OnHide()
 	{
 		super.OnHide();
+		if (m_SilverBarter_InspectTransition)
+			return;
+
 		g_Game.GetInput().ResetGameFocus();
 
 		PlayerBase player = PlayerBase.Cast(g_Game.GetPlayer());
@@ -1379,6 +1388,95 @@ class SilverTraderMenu extends UIScriptedMenu
 		return text;
 	}
 
+	private bool OpenItemInspect(Widget previewWidget)
+	{
+		if (!previewWidget || !m_SilverBarter_PreviewByIndex)
+			return false;
+
+		int index = previewWidget.GetUserID();
+		if (!m_SilverBarter_PreviewByIndex.Contains(index))
+			return false;
+
+		EntityAI entity = m_SilverBarter_PreviewByIndex.Get(index);
+		if (!entity)
+			return false;
+
+		Weapon_Base previewWeapon = Weapon_Base.Cast(entity);
+		if (previewWeapon)
+			previewWeapon.ForceSyncSelectionState();
+
+		m_SilverBarter_InspectTransition = true;
+		UIScriptedMenu inspectMenu = EnterScriptedMenu(SILVER_MENU_ITEM_INSPECT);
+		if (!inspectMenu)
+		{
+			m_SilverBarter_InspectTransition = false;
+			return false;
+		}
+
+		Mission mission = g_Game.GetMission();
+		if (mission && mission.GetHud())
+		{
+			mission.GetHud().ShowHudUI(false);
+			mission.GetHud().ShowQuickbarUI(false);
+		}
+
+		int callResult = g_Game.GameScript.CallFunctionParams(inspectMenu, "SetItem", null, new Param1<EntityAI>(entity));
+		if (callResult == 0)
+		{
+			inspectMenu.Close();
+			m_SilverBarter_InspectTransition = false;
+			return false;
+		}
+		return true;
+	}
+
+	private bool OpenBuyPreviewAtMouse(Widget w)
+	{
+		if (!w || (w.GetUserID() != 2001 && w.GetUserID() != 2002))
+			return false;
+
+		Widget itemRoot = w.GetParent();
+		if (itemRoot)
+			itemRoot = itemRoot.GetParent();
+		if (!itemRoot)
+			return false;
+
+		ItemPreviewWidget previewWidget = ItemPreviewWidget.Cast(itemRoot.FindAnyWidget("ItemPreviewWidget"));
+		if (!previewWidget)
+			return false;
+
+		float previewX;
+		float previewY;
+		float previewWidth;
+		float previewHeight;
+		previewWidget.GetScreenPos(previewX, previewY);
+		previewWidget.GetScreenSize(previewWidth, previewHeight);
+
+		int mouseX;
+		int mouseY;
+		GetMousePos(mouseX, mouseY);
+		if (mouseX < previewX || mouseX > previewX + previewWidth || mouseY < previewY || mouseY > previewY + previewHeight)
+			return false;
+
+		return OpenItemInspect(previewWidget);
+	}
+
+	override bool OnMouseButtonDown(Widget w, int x, int y, int button)
+	{
+		if (button == MouseState.MIDDLE && ItemPreviewWidget.Cast(w))
+		{
+			if (OpenItemInspect(w))
+				return true;
+		}
+		else if (button == MouseState.MIDDLE)
+		{
+			if (OpenBuyPreviewAtMouse(w))
+				return true;
+		}
+
+		return super.OnMouseButtonDown(w, x, y, button);
+	}
+
 	override bool OnChange(Widget w, int x, int y, bool finished)
 	{
 		super.OnChange(w, x, y, finished);
@@ -1403,6 +1501,12 @@ class SilverTraderMenu extends UIScriptedMenu
 	override bool OnClick(Widget w, int x, int y, int button)
 	{
 		super.OnClick(w, x, y, button);
+
+		if (button == MouseState.MIDDLE)
+		{
+			if (OpenBuyPreviewAtMouse(w))
+				return true;
+		}
 
 		if (button == MouseState.LEFT)
 		{
