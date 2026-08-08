@@ -10,6 +10,23 @@ class SilverItemConfigCache
 	string m_Category;        // Ergebnis von FilterByCategories
 }
 
+// Laufzeit-Huelle fuer das aktive Loadout eines Rotating-Traders.
+// Haelt NUR eine plain-Referenz auf das Config-PoolItem (Eigentuemer bleibt der Pool) plus den eingefrorenen Preis.
+class SilverActivePoolEntry
+{
+	SilverTrader_PoolItem m_PoolItem;   // plain ref -> zeigt auf Config-Objekt, kein Ownership
+	int m_UnitSurcharge;                // bei Rotation eingefrorener Stueckaufschlag der Attachments
+}
+
+// Arbeitspaket fuer den iterativen Attachment-Spawn (parent + zugehoerige Spec-Liste).
+// Iterativ statt rekursiv, weil ein rekursiver Aufruf in diesem Enforce-Build den Schleifenzustand des Aufrufers zerstoert.
+class SilverAttachJob
+{
+	EntityAI m_Parent;                                  // plain ref -> erzeugte Parent-Entity (Spawn)
+	array<ref SilverAttachmentSpec> m_Specs;            // plain Handle -> zeigt auf Config-Array (Eigentuemer bleibt die Config)
+	int m_ParentIndex;                                  // nur fuer Preview-Listenbau: Index des Parent-Knotens in der flachen Liste
+}
+
 // SilverBarter Haupt-Plugin (Server + Client vereint)
 class PluginSilverTrader extends PluginBase
 {
@@ -48,6 +65,8 @@ class PluginSilverTrader extends PluginBase
 	ref map<int, SilverRotatingTrader_Config> m_SilverBarter_RotatingTraderCache;
 	ref map<int, ref SilverTrader_Data> m_SilverBarter_RotatingTraderData;
 	ref map<int, float> m_SilverBarter_RotationTimers;
+	// Aktives Loadout je Trader: traderId -> classname -> Huelle (Baum-Ref + eingefrorener Aufschlag). Server-only.
+	ref map<int, ref map<string, ref SilverActivePoolEntry>> m_SilverBarter_ActivePool;
 	bool m_SilverBarter_ZenMapMarkersSet = false;
 
 	// Item-Config-Cache (Classname → gecachte Config-Werte)
@@ -144,6 +163,7 @@ class PluginSilverTrader extends PluginBase
 			m_SilverBarter_RotatingTraderCache = new map<int, SilverRotatingTrader_Config>;
 			m_SilverBarter_RotatingTraderData = new map<int, ref SilverTrader_Data>;
 			m_SilverBarter_RotationTimers = new map<int, float>;
+			m_SilverBarter_ActivePool = new map<int, ref map<string, ref SilverActivePoolEntry>>;
 			m_SilverBarter_OpenTraderMenus = new map<int, ref array<int>>;
 
 			m_SilverBarter_Config = SilverBarterConfigService.GetConfig();
@@ -321,6 +341,9 @@ class PluginSilverTrader extends PluginBase
 			traderData.m_items.Insert(itemClass, itemQty);
 		}
 
+		// Rotation-Revision + Attachment-Aufschlaege
+		if (!ReadAttachmentSync(ctx, traderData)) return;
+
 		m_SilverBarter_TraderMenu = new SilverTraderMenu;
 		m_SilverBarter_TraderMenu.InitMetadata(traderInfo.m_traderId, traderInfo, traderData, isRotating);
 		g_Game.GetUIManager().ShowScriptedMenu(m_SilverBarter_TraderMenu, null);
@@ -358,6 +381,9 @@ class PluginSilverTrader extends PluginBase
 				return;
 			newData.m_items.Insert(itemClass, itemQty);
 		}
+
+		// Rotation-Revision + Attachment-Aufschlaege
+		if (!ReadAttachmentSync(ctx, newData)) return;
 
 		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active)
 		{
@@ -593,6 +619,8 @@ class PluginSilverTrader extends PluginBase
 		if (!traderObj)
 		{
 			Print("[SilverBarter] ERROR: Could not spawn rotating trader NPC: " + trader.m_classname);
+			if (m_SilverBarter_ActivePool)
+				m_SilverBarter_ActivePool.Remove(trader.m_traderId);
 			return;
 		}
 
@@ -616,6 +644,8 @@ class PluginSilverTrader extends PluginBase
 		{
 			Print("[SilverBarter] ERROR: TraderPoint creation failed for rotating trader " + trader.m_traderId.ToString() + " - cleaning up NPC.");
 			g_Game.ObjectDelete(traderObj);
+			if (m_SilverBarter_ActivePool)
+				m_SilverBarter_ActivePool.Remove(trader.m_traderId);
 			return;
 		}
 
@@ -635,13 +665,36 @@ class PluginSilverTrader extends PluginBase
 
 	private void RotateTraderPool(SilverRotatingTrader_Config trader, SilverTrader_Data traderData)
 	{
-		if (!trader || !trader.m_poolItems || trader.m_poolItems.Count() == 0)
+		if (!trader || !traderData)
 			return;
+
+		int traderId = trader.m_traderId;
+
+		// Aktives Loadout fuer diesen Trader neu aufbauen (traderId -> classname -> Huelle)
+		map<string, ref SilverActivePoolEntry> activeEntries = new map<string, ref SilverActivePoolEntry>;
+		if (m_SilverBarter_ActivePool)
+			m_SilverBarter_ActivePool.Set(traderId, activeEntries);
 
 		if (!traderData.m_items)
 			traderData.m_items = new map<string, float>;
 		else
 			traderData.m_items.Clear();
+
+		if (!traderData.m_attachmentSurcharge)
+			traderData.m_attachmentSurcharge = new map<string, int>;
+		else
+			traderData.m_attachmentSurcharge.Clear();
+
+		if (!traderData.m_previewAttachments)
+			traderData.m_previewAttachments = new map<string, ref array<ref SilverPreviewAttachment>>;
+		else
+			traderData.m_previewAttachments.Clear();
+
+		// Revision hochzaehlen: Client-Loadout und Server-Loadout muessen beim Kauf uebereinstimmen
+		traderData.m_rotationRevision = traderData.m_rotationRevision + 1;
+
+		if (!trader.m_poolItems || trader.m_poolItems.Count() == 0)
+			return;
 
 		int slotsToFill = Math.Min(trader.m_activeSlots, trader.m_poolItems.Count());
 
@@ -653,7 +706,7 @@ class PluginSilverTrader extends PluginBase
 		for (int i = 0; i < trader.m_poolItems.Count(); i++)
 		{
 			SilverTrader_PoolItem poolItem = trader.m_poolItems.Get(i);
-			if (poolItem && poolItem.weight > 0)
+			if (poolItem && poolItem.weight > 0 && poolItem.classname != "")
 			{
 				availableIndices.Insert(i);
 				availableWeights.Insert(poolItem.weight);
@@ -689,17 +742,315 @@ class PluginSilverTrader extends PluginBase
 
 			int poolIndex = availableIndices.Get(selectedIdx);
 			SilverTrader_PoolItem selected = trader.m_poolItems.Get(poolIndex);
-			if (selected)
-			{
-				traderData.m_items.Insert(selected.classname, selected.quantity);
-				DebugLog("Rotation: Selected " + selected.classname + " (qty: " + selected.quantity.ToString() + ", weight: " + selected.weight.ToString() + ")");
-			}
 
-			// Aus verfuegbaren Optionen entfernen
+			// Gewaehlten Slot aus den Kandidaten nehmen
 			totalWeight = totalWeight - availableWeights.Get(selectedIdx);
 			availableIndices.Remove(selectedIdx);
 			availableWeights.Remove(selectedIdx);
+
+			if (!selected)
+				continue;
+
+			// Alle uebrigen Kandidaten mit demselben classname entfernen: die Stock-Map kann pro classname
+			// nur einen Eintrag halten, also darf pro Rotation nur eine Variante aktiv sein.
+			for (int d = availableIndices.Count() - 1; d >= 0; d--)
+			{
+				int candIndex = availableIndices.Get(d);
+				SilverTrader_PoolItem candidate = trader.m_poolItems.Get(candIndex);
+				if (candidate && candidate.classname == selected.classname)
+				{
+					totalWeight = totalWeight - availableWeights.Get(d);
+					availableIndices.Remove(d);
+					availableWeights.Remove(d);
+				}
+			}
+
+			traderData.m_items.Insert(selected.classname, selected.quantity);
+
+			// Attachment-Aufschlag einmalig einfrieren (stock=0, pro Knoten gefloort)
+			int surcharge = CalculateAttachmentTreeSurcharge(trader, selected.attachments);
+
+			SilverActivePoolEntry entry = new SilverActivePoolEntry();
+			entry.m_PoolItem = selected;
+			entry.m_UnitSurcharge = surcharge;
+			activeEntries.Insert(selected.classname, entry);
+
+			if (surcharge > 0)
+				traderData.m_attachmentSurcharge.Insert(selected.classname, surcharge);
+
+			// Flache Preview-Beschreibung fuer den Client (nur wenn Attachments vorhanden)
+			if (selected.attachments && selected.attachments.Count() > 0)
+				traderData.m_previewAttachments.Insert(selected.classname, BuildPreviewList(selected.attachments));
+
+			DebugLog("Rotation: Selected " + selected.classname + " (qty: " + selected.quantity.ToString() + ", surcharge: " + surcharge.ToString() + ")");
 		}
+	}
+
+	// Aktiven Pool-Eintrag (Baum + eingefrorener Preis) fuer traderId + classname holen. Server-only. null wenn nicht vorhanden.
+	private SilverActivePoolEntry GetActivePoolEntry(int traderId, string classname)
+	{
+		if (!m_SilverBarter_ActivePool)
+			return null;
+
+		map<string, ref SilverActivePoolEntry> entries;
+		if (!m_SilverBarter_ActivePool.Find(traderId, entries) || !entries)
+			return null;
+
+		SilverActivePoolEntry entry;
+		if (entries.Find(classname, entry))
+			return entry;
+		return null;
+	}
+
+	// Haengt einen Attachment-Baum an parent an. Liefert false bei erstem Fehlschlag (-> Trade-Rollback).
+	// Bewusst iterativ ueber eine Work-Queue statt rekursiv: ein rekursiver Aufruf im Schleifenkoerper zerstoert
+	// in diesem Enforce-Build den Schleifenzustand des Aufrufers (Loop bricht nach der ersten Iteration ab).
+	private bool SpawnAttachmentTree(EntityAI rootParent, array<ref SilverAttachmentSpec> rootSpecs)
+	{
+		if (!rootParent || !rootSpecs)
+			return true;
+
+		array<ref SilverAttachJob> queue = new array<ref SilverAttachJob>;
+		SilverAttachJob rootJob = new SilverAttachJob();
+		rootJob.m_Parent = rootParent;
+		rootJob.m_Specs = rootSpecs;
+		queue.Insert(rootJob);
+
+		while (queue.Count() > 0)
+		{
+			SilverAttachJob job = queue.Get(0);
+			queue.Remove(0);
+			if (!job || !job.m_Parent || !job.m_Specs)
+				continue;
+
+			EntityAI parent = job.m_Parent;
+			array<ref SilverAttachmentSpec> specs = job.m_Specs;
+
+			int count = specs.Count();
+			DebugLog("SpawnAttachmentTree: parent=" + parent.GetType() + " count=" + count.ToString());
+
+			for (int i = 0; i < count; i++)
+			{
+				SilverAttachmentSpec spec = specs.Get(i);
+				if (!spec || spec.classname == "")
+					continue;
+
+				EntityAI attachment = SpawnSingleAttachment(parent, spec);
+
+				if (!attachment)
+				{
+					Print("[SilverBarter] SPAWN FAILED: attachment " + spec.classname + " could not be attached to " + parent.GetType());
+					return false;
+				}
+
+				ApplyAttachmentFill(attachment, spec.fill);
+
+				// Verschachtelte Attachments (z.B. Batterie in Optik) als eigenes Arbeitspaket einreihen,
+				// statt hier rekursiv zu spawnen.
+				if (spec.attachments && spec.attachments.Count() > 0)
+				{
+					SilverAttachJob childJob = new SilverAttachJob();
+					childJob.m_Parent = attachment;
+					childJob.m_Specs = spec.attachments;
+					queue.Insert(childJob);
+				}
+			}
+		}
+		return true;
+	}
+
+	// Erzeugt ein einzelnes Attachment an parent. Nutzt LocationCreateEntity (erzeugt direkt an der Ziel-Location,
+	// tick-sicher). Ohne festen Slot wird die passende Attachment-Location ueber eine temporaere Entity ermittelt -
+	// FindFirstFreeLocationForNewEntity(classname) ist fuer Attachments an einem Item-im-Cargo unzuverlaessig.
+	private EntityAI SpawnSingleAttachment(EntityAI parent, SilverAttachmentSpec spec)
+	{
+		// Magazine haben ein eigenes Waffen-System (magazines[]-Config), das FindFreeLocationFor(ATTACHMENT) nicht
+		// abdeckt. CreateAttachment findet den Magazin-Slot dagegen korrekt. Ammunition_Base liegt ebenfalls unter
+		// CfgMagazines, ist aber kein Waffenmagazin und muss ausgeschlossen werden. Ein evtl. gesetzter slot wird
+		// hier bewusst ignoriert - der Magazin-Slot ergibt sich aus der Waffen-Config.
+		bool isMagazine = g_Game.IsKindOf(spec.classname, "Magazine_Base");
+		bool isAmmunition = g_Game.IsKindOf(spec.classname, "Ammunition_Base");
+
+		Weapon_Base weapon = Weapon_Base.Cast(parent);
+		if (weapon && isMagazine && !isAmmunition)
+		{
+			EntityAI attachedMagazine = parent.GetInventory().CreateAttachment(spec.classname);
+			DebugLog("SpawnSingle(magazine): " + spec.classname + " created=" + (attachedMagazine != null).ToString());
+			return attachedMagazine;
+		}
+
+		InventoryLocation loc = new InventoryLocation;
+
+		// Fester Slot aus der Config
+		if (spec.slot != "")
+		{
+			int slotId = InventorySlots.GetSlotIdFromString(spec.slot);
+			if (slotId == InventorySlots.INVALID)
+				return null;
+			loc.SetAttachment(parent, null, slotId);
+			EntityAI slotAtt = GameInventory.LocationCreateEntity(loc, spec.classname, ECE_IN_INVENTORY, RF_DEFAULT);
+			DebugLog("SpawnSingle(slot): " + spec.classname + " slotId=" + slotId.ToString() + " created=" + (slotAtt != null).ToString());
+			return slotAtt;
+		}
+
+		// Kein Slot: passende Attachment-Location ueber eine temporaere Entity ermitteln, dann verwerfen und
+		// die echte Entity direkt an der Location erzeugen (bewaehrter Expansion-Ansatz).
+		Object tmpObj = g_Game.CreateObjectEx(spec.classname, "0 0 0", ECE_LOCAL);
+		EntityAI tmpEntity;
+		if (!Class.CastTo(tmpEntity, tmpObj))
+		{
+			if (tmpObj)
+				g_Game.ObjectDelete(tmpObj);
+			DebugLog("SpawnSingle: " + spec.classname + " tmp create failed");
+			return null;
+		}
+
+		bool found = parent.GetInventory().FindFreeLocationFor(tmpEntity, FindInventoryLocationType.ATTACHMENT, loc);
+		int foundSlot = -1;
+		EntityAI created = null;
+		if (found)
+		{
+			foundSlot = loc.GetSlot();
+			created = GameInventory.LocationCreateEntity(loc, spec.classname, ECE_IN_INVENTORY, RF_DEFAULT);
+		}
+		DebugLog("SpawnSingle: " + spec.classname + " found=" + found.ToString() + " slot=" + foundSlot.ToString() + " created=" + (created != null).ToString());
+
+		g_Game.ObjectDelete(tmpObj);
+		return created;
+	}
+
+	// Wendet den Fuellgrad auf ein frisch erzeugtes Attachment an. Negatives fill = Config-Default belassen.
+	private void ApplyAttachmentFill(EntityAI attachment, float fill)
+	{
+		if (fill < 0)
+			return;
+
+		float clamped = Math.Clamp(fill, 0, 1);
+
+		Magazine mag;
+		if (Class.CastTo(mag, attachment))
+		{
+			mag.ServerSetAmmoCount((int)Math.Round(mag.GetAmmoMax() * clamped));
+			return;
+		}
+
+		ItemBase item;
+		if (ItemBase.CastTo(item, attachment))
+		{
+			item.SetQuantityNormalized(clamped);
+		}
+	}
+
+	// Schreibt Rotation-Revision + Attachment-Aufschlaege (classname->int) in den RPC.
+	// Reihenfolge-kritisch: muss exakt zu ReadAttachmentSync passen.
+	private void WriteAttachmentSync(ScriptRPC rpc, SilverTrader_Data data)
+	{
+		int revision = 0;
+		int surchargeCount = 0;
+		if (data)
+		{
+			revision = data.m_rotationRevision;
+			if (data.m_attachmentSurcharge)
+				surchargeCount = data.m_attachmentSurcharge.Count();
+		}
+
+		rpc.Write(revision);
+		rpc.Write(surchargeCount);
+		if (surchargeCount > 0)
+		{
+			for (int i = 0; i < data.m_attachmentSurcharge.Count(); i++)
+			{
+				rpc.Write(data.m_attachmentSurcharge.GetKey(i));
+				rpc.Write(data.m_attachmentSurcharge.GetElement(i));
+			}
+		}
+
+		// Preview-Baum je Waffen-classname (flach: classname, slot, parentIndex)
+		int previewCount = 0;
+		if (data && data.m_previewAttachments)
+			previewCount = data.m_previewAttachments.Count();
+		rpc.Write(previewCount);
+		for (int p = 0; p < previewCount; p++)
+		{
+			string weaponClass = data.m_previewAttachments.GetKey(p);
+			array<ref SilverPreviewAttachment> list = data.m_previewAttachments.GetElement(p);
+			rpc.Write(weaponClass);
+
+			int attCount = 0;
+			if (list)
+				attCount = list.Count();
+			rpc.Write(attCount);
+
+			for (int a = 0; a < attCount; a++)
+			{
+				SilverPreviewAttachment pa = list.Get(a);
+				rpc.Write(pa.m_Classname);
+				rpc.Write(pa.m_Slot);
+				rpc.Write(pa.m_ParentIndex);
+			}
+		}
+	}
+
+	// Liest Rotation-Revision + Attachment-Aufschlaege und legt sie in data ab. false bei Lesefehler.
+	private bool ReadAttachmentSync(ParamsReadContext ctx, SilverTrader_Data data)
+	{
+		int revision;
+		if (!ctx.Read(revision)) return false;
+
+		int surchargeCount;
+		if (!ctx.Read(surchargeCount)) return false;
+
+		if (data)
+		{
+			data.m_rotationRevision = revision;
+			if (!data.m_attachmentSurcharge)
+				data.m_attachmentSurcharge = new map<string, int>;
+			else
+				data.m_attachmentSurcharge.Clear();
+		}
+
+		for (int i = 0; i < surchargeCount; i++)
+		{
+			string surchargeClass;
+			int surchargeValue;
+			if (!ctx.Read(surchargeClass)) return false;
+			if (!ctx.Read(surchargeValue)) return false;
+			if (data && data.m_attachmentSurcharge)
+				data.m_attachmentSurcharge.Set(surchargeClass, surchargeValue);
+		}
+
+		if (data)
+		{
+			if (!data.m_previewAttachments)
+				data.m_previewAttachments = new map<string, ref array<ref SilverPreviewAttachment>>;
+			else
+				data.m_previewAttachments.Clear();
+		}
+
+		int previewCount;
+		if (!ctx.Read(previewCount)) return false;
+		for (int p = 0; p < previewCount; p++)
+		{
+			string weaponClass;
+			if (!ctx.Read(weaponClass)) return false;
+
+			int attCount;
+			if (!ctx.Read(attCount)) return false;
+
+			array<ref SilverPreviewAttachment> list = new array<ref SilverPreviewAttachment>;
+			for (int a = 0; a < attCount; a++)
+			{
+				SilverPreviewAttachment pa = new SilverPreviewAttachment();
+				if (!ctx.Read(pa.m_Classname)) return false;
+				if (!ctx.Read(pa.m_Slot)) return false;
+				if (!ctx.Read(pa.m_ParentIndex)) return false;
+				list.Insert(pa);
+			}
+
+			if (data && data.m_previewAttachments)
+				data.m_previewAttachments.Set(weaponClass, list);
+		}
+		return true;
 	}
 
 	private void CheckRotationTimers(float delta_time)
@@ -801,6 +1152,9 @@ class PluginSilverTrader extends PluginBase
 				}
 			}
 
+			// Rotation-Revision + Attachment-Aufschlaege
+			WriteAttachmentSync(rpc, traderData);
+
 			rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true, player.GetIdentity());
 		}
 	}
@@ -827,6 +1181,9 @@ class PluginSilverTrader extends PluginBase
 				return;
 			newData.m_items.Insert(itemClass, itemQty);
 		}
+
+		// Rotation-Revision + Attachment-Aufschlaege
+		if (!ReadAttachmentSync(ctx, newData)) return;
 
 		if (m_SilverBarter_TraderMenu && m_SilverBarter_TraderMenu.m_SilverBarter_Active && m_SilverBarter_TraderMenu.m_SilverBarter_TraderId == traderId)
 		{
@@ -1106,6 +1463,9 @@ class PluginSilverTrader extends PluginBase
 			rpc.Write(traderData.m_items.GetElement(k));
 		}
 
+		// Rotation-Revision + Attachment-Aufschlaege
+		WriteAttachmentSync(rpc, traderData);
+
 		rpc.Send(player, SilverRPCManager.CHANNEL_SILVER_BARTER, true, player.GetIdentity());
 		DebugLog("Menu RPC sent to " + player.GetIdentity().GetName());
 	}
@@ -1150,6 +1510,13 @@ class PluginSilverTrader extends PluginBase
 		if (!ctx.Read(traderId))
 		{
 			Print("[SilverBarter] ERROR: Failed to read traderId");
+			return;
+		}
+
+		int clientRotationRevision;
+		if (!ctx.Read(clientRotationRevision))
+		{
+			Print("[SilverBarter] ERROR: Failed to read rotationRevision");
 			return;
 		}
 
@@ -1243,6 +1610,15 @@ class PluginSilverTrader extends PluginBase
 			traderInfo = stdConfig;
 			if (!m_SilverBarter_TraderData.Find(traderId, traderData))
 				return;
+		}
+
+		// Rotations-Race: Client-Loadout muss dem aktuellen Server-Loadout entsprechen, sonst koennte der
+		// Kaeufer ein anderes Attachment-Set erhalten als angezeigt. Bei Abweichung ablehnen und neu syncen.
+		if (isRotatingTrade && traderData && traderData.m_rotationRevision != clientRotationRevision)
+		{
+			DebugLog("Trade denied: rotation revision mismatch (client=" + clientRotationRevision.ToString() + ", server=" + traderData.m_rotationRevision.ToString() + ")");
+			SyncRotatingTraderToClients(traderId);
+			return;
 		}
 
 		// Distanz-Check (max 5m zum Trader)
@@ -1366,7 +1742,7 @@ class PluginSilverTrader extends PluginBase
 
 		foreach (string buyClassname2, float buyQuantity2 : approvedBuyItems)
 		{
-			int buyPrice = CalculateBuyPrice(traderInfo, traderData, buyClassname2, buyQuantity2);
+			int buyPrice = CalculateBuyPriceWithAttachments(traderInfo, traderData, buyClassname2, buyQuantity2);
 			DebugLog("Buy price: " + buyClassname2 + " qty=" + buyQuantity2.ToString() + " price=" + buyPrice.ToString());
 			resultPrice = resultPrice - buyPrice;
 		}
@@ -1470,6 +1846,21 @@ class PluginSilverTrader extends PluginBase
 					else
 					{
 						buyEntity.SetQuantityNormalized(spawnQuantity01);
+					}
+
+					// Attachment-Baum je Waffe anhaengen (nur Rotating). Fehlschlag rollt ueber spawnFailed
+					// die gesamte Chest-Hierarchie zurueck, damit Preis und geliefertes Item konsistent bleiben.
+					if (isRotatingTrade)
+					{
+						SilverActivePoolEntry activeEntry = GetActivePoolEntry(traderId, buyClassname4);
+						if (activeEntry && activeEntry.m_PoolItem && activeEntry.m_PoolItem.attachments && activeEntry.m_PoolItem.attachments.Count() > 0)
+						{
+							if (!SpawnAttachmentTree(buyEntity, activeEntry.m_PoolItem.attachments))
+							{
+								spawnFailed = true;
+								break;
+							}
+						}
 					}
 
 					EntityAI spawnRoot = buyEntity.GetHierarchyRoot();
@@ -1620,6 +2011,10 @@ class PluginSilverTrader extends PluginBase
 					respRpc.Write(traderData.m_items.GetElement(ri));
 				}
 			}
+
+			// Rotation-Revision + Attachment-Aufschlaege
+			WriteAttachmentSync(respRpc, traderData);
+
 			respRpc.Send(respPlayer, SilverRPCManager.CHANNEL_SILVER_BARTER, true, sender);
 			DebugLog("Trade response sent: success=" + tradeSuccess.ToString() + ", items=" + respItemCount.ToString());
 		}
@@ -2029,11 +2424,18 @@ class PluginSilverTrader extends PluginBase
 	int CalculateBuyPrice(SilverTrader_Info trader, SilverTrader_Data data, string classname, float quantity)
 	{
 		float totalQuantity = 0;
-		if (data.m_items.Contains(classname))
+		if (data && data.m_items && data.m_items.Contains(classname))
 		{
 			totalQuantity = data.m_items.Get(classname);
 		}
 
+		return CalculateBuyPriceAtStock(trader, classname, quantity, totalQuantity);
+	}
+
+	// Kern der Kaufpreis-Berechnung mit explizitem Lagerbestand. Fuer Attachments mit totalQuantity 0 aufrufen:
+	// dann liefert das Dumping den vollen Preis, unabhaengig von einem separaten Stock desselben classname.
+	int CalculateBuyPriceAtStock(SilverTrader_Info trader, string classname, float quantity, float totalQuantity)
+	{
 		float itemMaxQuantity = CalculateTraderItemQuantityMax(trader, classname);
 		quantity = Math.Min(quantity, itemMaxQuantity);
 		totalQuantity = Math.Min(totalQuantity, itemMaxQuantity);
@@ -2047,6 +2449,127 @@ class PluginSilverTrader extends PluginBase
 			return 1;
 
 		return (int)Math.Floor(resultPrice);
+	}
+
+	// Stueckpreis eines einzelnen Attachments: voller Preis bei Lagerbestand 0 (kein Dumping-Rabatt).
+	int CalculateAttachmentUnitPrice(SilverTrader_Info trader, string classname)
+	{
+		return CalculateBuyPriceAtStock(trader, classname, 1, 0);
+	}
+
+	// Summe der Aufschlaege eines Attachment-Baums. Jeder Knoten wird pro Stueck gefloort und aufaddiert,
+	// damit Client-Anzeige und Server-Abrechnung bit-identisch bleiben. Bewusst iterativ ueber eine Queue statt
+	// rekursiv - ein rekursiver Aufruf im Schleifenkoerper zerstoert in diesem Enforce-Build den Schleifenzustand.
+	int CalculateAttachmentTreeSurcharge(SilverTrader_Info trader, array<ref SilverAttachmentSpec> rootSpecs)
+	{
+		if (!rootSpecs)
+			return 0;
+
+		int sum = 0;
+		array<ref SilverAttachJob> queue = new array<ref SilverAttachJob>;
+		SilverAttachJob rootJob = new SilverAttachJob();
+		rootJob.m_Specs = rootSpecs;
+		queue.Insert(rootJob);
+
+		while (queue.Count() > 0)
+		{
+			SilverAttachJob job = queue.Get(0);
+			queue.Remove(0);
+			if (!job || !job.m_Specs)
+				continue;
+
+			array<ref SilverAttachmentSpec> specs = job.m_Specs;
+			int count = specs.Count();
+			for (int i = 0; i < count; i++)
+			{
+				SilverAttachmentSpec spec = specs.Get(i);
+				if (!spec || spec.classname == "")
+					continue;
+
+				sum = sum + CalculateAttachmentUnitPrice(trader, spec.classname);
+
+				if (spec.attachments && spec.attachments.Count() > 0)
+				{
+					SilverAttachJob childJob = new SilverAttachJob();
+					childJob.m_Specs = spec.attachments;
+					queue.Insert(childJob);
+				}
+			}
+		}
+		return sum;
+	}
+
+	// Baut die flache Preview-Liste (classname, slot, parentIndex) eines Attachment-Baums fuer den Client-Sync.
+	// BFS ueber eine Queue: der Parent-Knoten wird stets vor seinen Kindern eingefuegt, daher parentIndex < eigener Index.
+	array<ref SilverPreviewAttachment> BuildPreviewList(array<ref SilverAttachmentSpec> rootSpecs)
+	{
+		array<ref SilverPreviewAttachment> flat = new array<ref SilverPreviewAttachment>;
+		if (!rootSpecs || rootSpecs.Count() == 0)
+			return flat;
+
+		array<ref SilverAttachJob> queue = new array<ref SilverAttachJob>;
+		SilverAttachJob rootJob = new SilverAttachJob();
+		rootJob.m_Specs = rootSpecs;
+		rootJob.m_ParentIndex = -1;
+		queue.Insert(rootJob);
+
+		while (queue.Count() > 0)
+		{
+			SilverAttachJob job = queue.Get(0);
+			queue.Remove(0);
+			if (!job || !job.m_Specs)
+				continue;
+
+			array<ref SilverAttachmentSpec> specs = job.m_Specs;
+			int parentIndex = job.m_ParentIndex;
+			int count = specs.Count();
+			for (int i = 0; i < count; i++)
+			{
+				SilverAttachmentSpec spec = specs.Get(i);
+				if (!spec || spec.classname == "")
+					continue;
+
+				SilverPreviewAttachment preview = new SilverPreviewAttachment();
+				preview.m_Classname = spec.classname;
+				preview.m_Slot = spec.slot;
+				preview.m_ParentIndex = parentIndex;
+				int myIndex = flat.Count();
+				flat.Insert(preview);
+
+				if (spec.attachments && spec.attachments.Count() > 0)
+				{
+					SilverAttachJob childJob = new SilverAttachJob();
+					childJob.m_Specs = spec.attachments;
+					childJob.m_ParentIndex = myIndex;
+					queue.Insert(childJob);
+				}
+			}
+		}
+		return flat;
+	}
+
+	// Eingefrorener Attachment-Stueckaufschlag fuer classname aus den Trader-Daten (0 wenn keine Attachments aktiv).
+	int GetAttachmentSurcharge(SilverTrader_Data data, string classname)
+	{
+		if (!data || !data.m_attachmentSurcharge)
+			return 0;
+
+		int surcharge = 0;
+		if (data.m_attachmentSurcharge.Find(classname, surcharge))
+			return surcharge;
+		return 0;
+	}
+
+	// Kaufpreis inkl. Attachment-Aufschlag. Aufschlag gilt pro Waffe, daher * quantity.
+	// Wird von Client (Anzeige) und Server (Abrechnung) gleichermassen genutzt.
+	int CalculateBuyPriceWithAttachments(SilverTrader_Info trader, SilverTrader_Data data, string classname, float quantity)
+	{
+		int basePrice = CalculateBuyPrice(trader, data, classname, quantity);
+		int surcharge = GetAttachmentSurcharge(data, classname);
+		if (surcharge <= 0)
+			return basePrice;
+
+		return basePrice + (int)(surcharge * quantity);
 	}
 
 	// Wert-Multiplikator fuer die Item-Kategorie: zuerst trader-spezifisch, danach global (Server-Config bzw. client-gesyncte Liste)
@@ -2376,7 +2899,7 @@ class PluginSilverTrader extends PluginBase
 		return Math.Lerp(1, modifier, (value / max));
 	}
 
-	void DoBarter(int traderId, array<ItemBase> sellItems, map<string, float> buyItems)
+	void DoBarter(int traderId, array<ItemBase> sellItems, map<string, float> buyItems, int rotationRevision)
 	{
 		if (sellItems.Count() == 0 && buyItems.Count() == 0)
 			return;
@@ -2397,6 +2920,7 @@ class PluginSilverTrader extends PluginBase
 		ScriptRPC rpc = new ScriptRPC();
 		rpc.Write(SilverRPC.SILVERRPC_ACTION_TRADER);
 		rpc.Write(traderId);
+		rpc.Write(rotationRevision);
 
 		// Sell-Items als NetworkIDs senden (nur valide)
 		rpc.Write(validSellCount);

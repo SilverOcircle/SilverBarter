@@ -103,7 +103,20 @@ class SilverTraderMenu extends UIScriptedMenu
 
 	void UpdateMetadata(SilverTrader_Data traderData)
 	{
+		int oldRevision = -1;
+		if (m_SilverBarter_TraderData)
+			oldRevision = m_SilverBarter_TraderData.m_rotationRevision;
+
 		m_SilverBarter_TraderData = traderData;
+
+		int newRevision = -1;
+		if (traderData)
+			newRevision = traderData.m_rotationRevision;
+
+		// Bei Rotation (Revision geaendert) alle Previews verwerfen und neu aufbauen lassen
+		if (newRevision != oldRevision)
+			DiscardAllPreviews();
+
 		NormalizeBuySelection();
 		m_SilverBarter_Dirty = true;
 	}
@@ -170,9 +183,9 @@ class SilverTraderMenu extends UIScriptedMenu
 			{
 				if (!entity)
 					continue;
-				string cn = entity.GetType();
-				if (m_SilverBarter_PreviewPool && m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(cn))
-					m_SilverBarter_PreviewPool.Insert(cn, entity);
+				string key = GetPreviewKey(entity.GetType());
+				if (m_SilverBarter_PreviewPool && m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(key))
+					m_SilverBarter_PreviewPool.Insert(key, entity);
 				else
 					g_Game.ObjectDelete(entity);
 			}
@@ -490,6 +503,113 @@ class SilverTraderMenu extends UIScriptedMenu
 	}
 
 	// Spawnt/despawnt Preview-Entities je nach Sichtbarkeit, max 4 Spawns pro Frame
+	// Pool-Schluessel inkl. Rotation-Revision: verhindert, dass nach einer Rotation eine alt bestueckte Preview
+	// desselben Classname wiederverwendet wird.
+	private string GetPreviewKey(string classname)
+	{
+		int rev = 0;
+		if (m_SilverBarter_TraderData)
+			rev = m_SilverBarter_TraderData.m_rotationRevision;
+		return classname + ":" + rev.ToString();
+	}
+
+	// Haengt die gesyncten Preview-Attachments lokal an eine frisch erzeugte Preview-Waffe an (rein visuell).
+	// Iterativ ueber die flache Liste; das created-Array bleibt index-gleich, damit m_ParentIndex das richtige Parent trifft.
+	private void ApplyPreviewAttachments(EntityAI weapon, string classname)
+	{
+		if (!weapon || !m_SilverBarter_TraderData || !m_SilverBarter_TraderData.m_previewAttachments)
+			return;
+
+		array<ref SilverPreviewAttachment> list;
+		if (!m_SilverBarter_TraderData.m_previewAttachments.Find(classname, list) || !list)
+			return;
+
+		array<EntityAI> created = new array<EntityAI>;
+		int count = list.Count();
+		for (int i = 0; i < count; i++)
+		{
+			SilverPreviewAttachment pa = list.Get(i);
+			if (!pa || pa.m_Classname == "")
+			{
+				created.Insert(null);
+				continue;
+			}
+
+			EntityAI parent = weapon;
+			if (pa.m_ParentIndex >= 0 && pa.m_ParentIndex < created.Count())
+				parent = created.Get(pa.m_ParentIndex);
+
+			if (!parent)
+			{
+				created.Insert(null);
+				continue;
+			}
+
+			EntityAI att = null;
+			if (pa.m_Slot != "")
+			{
+				int slotId = InventorySlots.GetSlotIdFromString(pa.m_Slot);
+				if (slotId != InventorySlots.INVALID)
+					att = parent.GetInventory().CreateAttachmentEx(pa.m_Classname, slotId);
+			}
+			else
+			{
+				att = parent.GetInventory().CreateAttachment(pa.m_Classname);
+			}
+			created.Insert(att);
+		}
+
+		// Lokale Preview-Waffen aktualisieren ihre Magazin-Selektion nicht automatisch.
+		Weapon_Base previewWeapon = Weapon_Base.Cast(weapon);
+		if (previewWeapon)
+			previewWeapon.ForceSyncSelectionState();
+	}
+
+	// Verwirft alle aktiven und gepoolten Preview-Entities (bei Rotation), damit keine veraltete Bestueckung bleibt.
+	private void DiscardAllPreviews()
+	{
+		if (m_SilverBarter_PreviewByIndex && m_SilverBarter_BuyWidgetsCache)
+		{
+			int widgetCount = m_SilverBarter_BuyWidgetsCache.Count();
+			for (int bi = 0; bi < widgetCount; bi++)
+			{
+				if (!m_SilverBarter_PreviewByIndex.Contains(bi))
+					continue;
+				Widget w = m_SilverBarter_BuyWidgetsCache.Get(bi);
+				if (w)
+				{
+					ItemPreviewWidget pv = ItemPreviewWidget.Cast(w.FindAnyWidget("ItemPreviewWidget"));
+					if (pv)
+						pv.SetItem(null);
+				}
+			}
+
+			int activeCount = m_SilverBarter_PreviewByIndex.Count();
+			for (int ai = 0; ai < activeCount; ai++)
+			{
+				EntityAI e = m_SilverBarter_PreviewByIndex.GetElement(ai);
+				if (e)
+					g_Game.ObjectDelete(e);
+			}
+			m_SilverBarter_PreviewByIndex.Clear();
+		}
+
+		if (m_SilverBarter_PreviewPool)
+		{
+			int poolCount = m_SilverBarter_PreviewPool.Count();
+			for (int pi = 0; pi < poolCount; pi++)
+			{
+				EntityAI pe = m_SilverBarter_PreviewPool.GetElement(pi);
+				if (pe)
+					g_Game.ObjectDelete(pe);
+			}
+			m_SilverBarter_PreviewPool.Clear();
+		}
+
+		// Erzwingt einen erneuten Lazy-Preview-Aufbau (sonst blockiert der Scroll-Gleichstand-Check)
+		m_SilverBarter_LastScrollPos01 = -1;
+	}
+
 	private void UpdateLazyPreviews()
 	{
 		if (!m_SilverBarter_BuyWidgetsCache || m_SilverBarter_BuyWidgetsCache.Count() == 0 || m_SilverBarter_BuyRowHeight <= 0)
@@ -538,9 +658,9 @@ class SilverTraderMenu extends UIScriptedMenu
 			EntityAI de = m_SilverBarter_PreviewByIndex.Get(di);
 			if (de)
 			{
-				string dcn = de.GetType();
-				if (m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(dcn))
-					m_SilverBarter_PreviewPool.Insert(dcn, de);
+				string dkey = GetPreviewKey(de.GetType());
+				if (m_SilverBarter_PreviewPool.Count() < PREVIEW_POOL_CAP && !m_SilverBarter_PreviewPool.Contains(dkey))
+					m_SilverBarter_PreviewPool.Insert(dkey, de);
 				else
 					g_Game.ObjectDelete(de);
 			}
@@ -573,15 +693,19 @@ class SilverTraderMenu extends UIScriptedMenu
 				continue;
 
 			EntityAI entity = null;
-			if (m_SilverBarter_PreviewPool.Contains(data.m_Classname))
+			string previewKey = GetPreviewKey(data.m_Classname);
+			if (m_SilverBarter_PreviewPool.Contains(previewKey))
 			{
-				entity = m_SilverBarter_PreviewPool.Get(data.m_Classname);
-				m_SilverBarter_PreviewPool.Remove(data.m_Classname);
+				entity = m_SilverBarter_PreviewPool.Get(previewKey);
+				m_SilverBarter_PreviewPool.Remove(previewKey);
 			}
 			else
 			{
 				Object obj = g_Game.CreateObject(data.m_Classname, "0 0 0", true, false, false);
 				entity = EntityAI.Cast(obj);
+				// Nur frisch erzeugte Previews bestuecken; aus dem Pool geholte tragen ihre Attachments bereits.
+				if (entity)
+					ApplyPreviewAttachments(entity, data.m_Classname);
 			}
 
 			if (!entity)
@@ -675,7 +799,7 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			if (pluginTrader.CanBuyItem(m_SilverBarter_TraderInfo, buyClassname))
 			{
-				value = value - pluginTrader.CalculateBuyPrice(m_SilverBarter_TraderInfo, m_SilverBarter_TraderData, buyClassname, buyQuantity);
+				value = value - pluginTrader.CalculateBuyPriceWithAttachments(m_SilverBarter_TraderInfo, m_SilverBarter_TraderData, buyClassname, buyQuantity);
 			}
 			else
 			{
@@ -1230,7 +1354,11 @@ class SilverTraderMenu extends UIScriptedMenu
 		{
 			GetSelectedBuyItems(buyItems);
 
-			pluginTrader.DoBarter(m_SilverBarter_TraderId, sellItems, buyItems);
+			int rotationRevision = 0;
+			if (m_SilverBarter_TraderData)
+				rotationRevision = m_SilverBarter_TraderData.m_rotationRevision;
+
+			pluginTrader.DoBarter(m_SilverBarter_TraderId, sellItems, buyItems, rotationRevision);
 		}
 
 		sellItems = null;

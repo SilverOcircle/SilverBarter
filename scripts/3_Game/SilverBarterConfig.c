@@ -42,6 +42,20 @@ static bool SilverBarterCreateConfigBackup(string path, string suffix)
 	return true;
 }
 
+// Prueft ob ein Classname als Item/Magazin/Waffe in der Config existiert
+static bool SilverBarterIsValidItemClass(string classname)
+{
+	if (!g_Game || classname == "")
+		return false;
+	if (g_Game.ConfigIsExisting(CFG_VEHICLESPATH + " " + classname))
+		return true;
+	if (g_Game.ConfigIsExisting(CFG_MAGAZINESPATH + " " + classname))
+		return true;
+	if (g_Game.ConfigIsExisting(CFG_WEAPONSPATH + " " + classname))
+		return true;
+	return false;
+}
+
 // SilverBarter Haupt-Konfiguration
 class SilverBarterConfig
 {
@@ -690,10 +704,16 @@ class SilverCategoryValueMultiplier
 class SilverTrader_Data
 {
 	ref map<string, float> m_items;
+	ref map<string, int> m_attachmentSurcharge;   // transient: eingefrorener Stueckaufschlag je classname (nur Rotating)
+	ref map<string, ref array<ref SilverPreviewAttachment>> m_previewAttachments;   // transient: Preview-Baum je Waffen-classname
+	int m_rotationRevision;                        // transient: erhoeht sich bei jeder Rotation, gegen TOCTOU beim Kauf
 
 	void SilverTrader_Data()
 	{
 		m_items = new map<string, float>;
+		m_attachmentSurcharge = new map<string, int>;
+		m_previewAttachments = new map<string, ref array<ref SilverPreviewAttachment>>;
+		m_rotationRevision = 0;
 	}
 
 	bool LoadFromJson(string path)
@@ -975,12 +995,99 @@ class SilverTrader_LimitedItem
 	int maxQuantity;
 };
 
+// Rekursive Attachment-Spec fuer Pool-Waffen (verschachtelt moeglich: Optik->Batterie, Waffe->Magazin)
+// Arbeitspaket fuer die iterative Attachment-Validierung (Spec-Liste + Tiefe).
+class SilverAttachValidateJob
+{
+	array<ref SilverAttachmentSpec> m_Specs;   // plain Handle -> zeigt auf Config-Array
+	int m_Depth;
+};
+
+class SilverAttachmentSpec
+{
+	// Maximale Verschachtelungstiefe (Ebene 0 = direkte Waffenaufsaetze). Begrenzt Preis, Sync und Spawn einheitlich.
+	static const int MAX_DEPTH = 3;
+
+	string classname;
+	string slot;        // optional; leer = automatische Slot-Wahl, sonst fester Slot ueber aufgeloeste Slot-ID
+	float fill = -1;    // Spawn-Fuellgrad 0..1 (Magazin/Quantity); negativ = Config-Default belassen, preisneutral
+	ref array<ref SilverAttachmentSpec> attachments;
+
+	// Bereinigt einen Attachment-Baum: ungueltige Classnames und Slot-Namen werden verworfen, die Tiefe auf
+	// MAX_DEPTH begrenzt. Bewusst iterativ ueber eine Queue statt rekursiv - ein rekursiver Aufruf im Schleifen-
+	// koerper zerstoert in diesem Enforce-Build den Schleifenzustand des Aufrufers. Parent-Kompatibilitaet kann
+	// statisch nicht geprueft werden, dafuer greift der Runtime-Check beim Spawn.
+	static void ValidateList(array<ref SilverAttachmentSpec> rootSpecs, int depth = 0)
+	{
+		if (!rootSpecs)
+			return;
+
+		array<ref SilverAttachValidateJob> queue = new array<ref SilverAttachValidateJob>;
+		SilverAttachValidateJob rootJob = new SilverAttachValidateJob();
+		rootJob.m_Specs = rootSpecs;
+		rootJob.m_Depth = depth;
+		queue.Insert(rootJob);
+
+		while (queue.Count() > 0)
+		{
+			SilverAttachValidateJob job = queue.Get(0);
+			queue.Remove(0);
+			if (!job || !job.m_Specs)
+				continue;
+
+			array<ref SilverAttachmentSpec> specs = job.m_Specs;
+			int jobDepth = job.m_Depth;
+
+			for (int i = specs.Count() - 1; i >= 0; i--)
+			{
+				SilverAttachmentSpec spec = specs.Get(i);
+				if (!spec || spec.classname == "" || !SilverBarterIsValidItemClass(spec.classname))
+				{
+					specs.Remove(i);
+					continue;
+				}
+				if (spec.slot != "" && InventorySlots.GetSlotIdFromString(spec.slot) == InventorySlots.INVALID)
+				{
+					Print("[SilverBarter] WARNING: Invalid attachment slot removed: " + spec.slot + " (" + spec.classname + ")");
+					specs.Remove(i);
+					continue;
+				}
+				if (!spec.attachments)
+				{
+					spec.attachments = new array<ref SilverAttachmentSpec>;
+				}
+				else if (jobDepth + 1 >= MAX_DEPTH)
+				{
+					spec.attachments.Clear();
+				}
+				else if (spec.attachments.Count() > 0)
+				{
+					SilverAttachValidateJob childJob = new SilverAttachValidateJob();
+					childJob.m_Specs = spec.attachments;
+					childJob.m_Depth = jobDepth + 1;
+					queue.Insert(childJob);
+				}
+			}
+		}
+	}
+};
+
 // Pool-Item fuer rotierende Haendler (mit Gewichtung)
 class SilverTrader_PoolItem
 {
 	string classname;
 	int quantity;       // Menge pro Rotation
 	float weight;       // Gewichtung (1.0 = normal, 0.1 = sehr selten)
+	ref array<ref SilverAttachmentSpec> attachments;   // optional: Aufsaetze die an der Waffe spawnen
+};
+
+// Flache, gesyncte Beschreibung eines Attachment-Knotens fuer die Client-Preview (transient, kein JSON).
+// m_ParentIndex = -1 -> direkt an der Waffe, sonst Index eines frueheren Knotens in derselben Liste.
+class SilverPreviewAttachment
+{
+	string m_Classname;
+	string m_Slot;
+	int m_ParentIndex;
 };
 
 // Rotierender Haendler Config (komplett isoliert vom normalen Trader)
@@ -1011,6 +1118,16 @@ class SilverRotatingTrader_Config : SilverTrader_Info
 			m_spawnPositions = new array<string>;
 		if (!m_poolItems)
 			m_poolItems = new array<ref SilverTrader_PoolItem>;
+
+		foreach (SilverTrader_PoolItem poolItem : m_poolItems)
+		{
+			if (!poolItem)
+				continue;
+			if (!poolItem.attachments)
+				poolItem.attachments = new array<ref SilverAttachmentSpec>;
+			else
+				SilverAttachmentSpec.ValidateList(poolItem.attachments);
+		}
 
 		if (m_rotationIntervalMinutes <= 0)
 			m_rotationIntervalMinutes = 60;
