@@ -29,6 +29,7 @@ That's why I took it upon myself to bring it back, making it as stable and robus
 - [Installation](#installation)
 - [Security Notes](#security-notes)
 - [Rotating Pool Traders](#rotating-pool-traders)
+  - [Pool Item Attachments](#pool-item-attachments)
 - [Category Overrides](#category-overrides)
 - [Category Value Multipliers](#category-value-multipliers)
 - [ZenMap Integration](#zenmap-integration)
@@ -440,8 +441,73 @@ The `m_poolItems` array defines the full catalog from which items are selected v
 | `classname` | string | DayZ class name of the item |
 | `quantity` | int | Available quantity per rotation |
 | `weight` | float | Weight for random selection. `1.0` = normal, `0.1` = very rare |
+| `attachments` | array | Optional. Gear pre-attached to this item when it spawns (e.g. a magazine in a weapon). See [Pool Item Attachments](#pool-item-attachments) below. |
 
 **Example:** With `m_activeSlots: 5` and 20 pool items, 5 items are randomly selected on each rotation. Items with a higher `weight` value appear more frequently.
+
+### Pool Item Attachments
+
+Any `m_poolItems` entry can define an `attachments` array to make the item spawn with gear already attached — most commonly a loaded magazine in a weapon, but also scopes, suppressors, or anything else the base item accepts as an attachment. Attachments can be nested (e.g. a battery inside a scope) up to a depth of 3 levels.
+
+Each entry in `attachments` supports:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `classname` | string | — | DayZ class name of the attachment. Required; invalid classnames are dropped when the config loads. |
+| `slot` | string | `""` | Optional. Inventory slot to force the attachment into (e.g. `"Muzzle"`, `"Optics"`). Almost never needed — leave it out and the engine picks the correct slot automatically, same as attaching by hand. Only set this if an item has ambiguous slot options and picks the wrong one by default. If set to a name that doesn't resolve to a valid inventory slot ID, the attachment is dropped with a log warning. |
+| `fill` | float | `-1` | Spawn fill level, `0.0`-`1.0`. For **magazines**, this sets the ammo count (`GetAmmoMax() * fill`, rounded). For other stackable items, it sets the quantity via `SetQuantityNormalized()`. `-1` (default) leaves the item at its config default and does not need to be set explicitly. |
+| `attachments` | array | `[]` | Nested attachments on this attachment (e.g. a battery in an attached scope, or a suppressor on an attached upper). |
+
+**Pricing note:** `fill` only affects what spawns — it is deliberately price-neutral and does not change the trader's price. Attachments themselves *do* add to the price: each attachment's own buy price (at empty stock, no dumping discount) is summed up and frozen as a per-unit surcharge on the parent item for the current rotation, so a rifle with a scope attached costs more than the bare rifle, but a full vs. half-full magazine in it costs the same.
+
+**Example — AKM with a loaded 30-round magazine and a red dot sight:**
+```json
+{
+    "classname": "AKM",
+    "quantity": 2,
+    "weight": 0.3,
+    "attachments": [
+        { "classname": "Mag_AKM_Wood_30Rnd", "fill": 1.0 },
+        { "classname": "M68Optic" }
+    ]
+}
+```
+Every AKM spawned from this pool entry comes with a fully loaded magazine (`fill: 1.0`) and a red dot sight attached — no `slot` needed, both attach automatically. The magazine and optic's own buy prices are added to the AKM's price for that rotation.
+
+**Example — half-loaded magazine, no scope:**
+```json
+{
+    "classname": "CZ75",
+    "quantity": 3,
+    "weight": 0.6,
+    "attachments": [
+        { "classname": "Mag_CZ75_16Rnd", "fill": 0.5 }
+    ]
+}
+```
+Each CZ75 spawns with its magazine at 50% ammo (8 of 16 rounds).
+
+**Example — fully decked out M4A1 with nested attachment (battery inside the attached optic):**
+```json
+{
+    "classname": "M4A1",
+    "quantity": 1,
+    "weight": 1.0,
+    "attachments": [
+        { "classname": "M4_RISHndgrd" },
+        { "classname": "M4_MPBttstck" },
+        { "classname": "M4_Suppressor" },
+        { "classname": "Mag_STANAG_30Rnd", "fill": 1.0 },
+        {
+            "classname": "M68Optic",
+            "attachments": [
+                { "classname": "Battery9V" }
+            ]
+        }
+    ]
+}
+```
+`fill` is left out wherever the config default is fine (handguard, buttstock, suppressor, optic, battery) — only the magazine sets it explicitly to spawn fully loaded.
 
 ### Example Configuration
 
