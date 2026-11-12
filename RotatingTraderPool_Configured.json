@@ -1,0 +1,245 @@
+[
+  {
+    "classname": "AKM",
+    "quantity": 1,
+    "weight": 0.1,
+    "attachments": [
+      { "classname": "AK_WoodBttstck" },
+      { "classname": "AK_WoodHndgrd" },
+      { "classname": "PSO1Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "AK_Suppressor" },
+      { "classname": "Mag_AKM_30Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "AKM",
+    "quantity": 1,
+    "weight": 0.07,
+    "attachments": [
+      { "classname": "AK_PlasticBttstck" },
+      { "classname": "AK_RailHndgrd" },
+      { "classname": "KobraOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "UniversalLight", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "AK_Suppressor" },
+      { "classname": "Mag_AKM_Drum75Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "M4A1",
+    "quantity": 1,
+    "weight": 0.05,
+    "attachments": [
+      { "classname": "M4_MPBttstck" },
+      { "classname": "M4_RISHndgrd" },
+      { "classname": "ACOGOptic" },
+      { "classname": "UniversalLight", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "M4_Suppressor" },
+      { "classname": "Mag_STANAG_30Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "M4A1",
+    "quantity": 1,
+    "weight": 0.035,
+    "attachments": [
+      { "classname": "M4_CQBBttstck" },
+      { "classname": "M4_RISHndgrd" },
+      { "classname": "M68Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "UniversalLight", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "M4_Suppressor" },
+      { "classname": "Mag_STANAG_60Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "UMP45",
+    "quantity": 2,
+    "weight": 0.5,
+    "attachments": [
+      { "classname": "M68Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "UniversalLight", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "PistolSuppressor" },
+      { "classname": "Mag_UMP_25Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "UMP45",
+    "quantity": 2,
+    "weight": 0.3,
+    "attachments": [
+      { "classname": "ACOGOptic" },
+      { "classname": "PistolSuppressor" },
+      { "classname": "Mag_UMP_25Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "MP5K",
+    "quantity": 2,
+    "weight": 0.7,
+    "attachments": [
+      { "classname": "MP5k_StockBttstck" },
+      { "classname": "MP5_PlasticHndgrd" },
+      { "classname": "M68Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "UniversalLight", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "PistolSuppressor" },
+      { "classname": "Mag_MP5_30Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "MP5K",
+    "quantity": 2,
+    "weight": 0.4,
+    "attachments": [
+      { "classname": "MP5k_StockBttstck" },
+      { "classname": "MP5_PlasticHndgrd" },
+      { "classname": "MP5_Compensator" },
+      { "classname": "Mag_MP5_15Rnd", "fill": 0.0 }
+    ]
+  },
+  { "classname": "Ammo_762x39", "quantity": 5, "weight": 1.0 },
+  { "classname": "M68Optic", "quantity": 1, "weight": 0.3 },
+  {
+    "classname": "FAMAS",
+    "quantity": 1,
+    "weight": 0.15,
+    "attachments": [
+      { "classname": "ImprovisedSuppressor" },
+      { "classname": "Mag_FAMAS_25Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "AugShort",
+    "quantity": 1,
+    "weight": 0.15,
+    "attachments": [
+      { "classname": "AugOptic" },
+      { "classname": "ImprovisedSuppressor" },
+      { "classname": "Mag_Aug_30Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "SVD",
+    "quantity": 1,
+    "weight": 0.05,
+    "attachments": [
+      { "classname": "PSO1Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "AK_Suppressor" },
+      { "classname": "Mag_SVD_10Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "SVD",
+    "quantity": 1,
+    "weight": 0.035,
+    "attachments": [
+      { "classname": "KobraOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_SVD_10Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "VSS",
+    "quantity": 1,
+    "weight": 0.08,
+    "attachments": [
+      { "classname": "PSO1Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_VAL_20Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "VSS",
+    "quantity": 1,
+    "weight": 0.055,
+    "attachments": [
+      { "classname": "KobraOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_VSS_10Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "Saiga",
+    "quantity": 1,
+    "weight": 0.1,
+    "attachments": [
+      { "classname": "Saiga_Bttstck" },
+      { "classname": "KobraOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_Saiga_Drum20Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "Saiga",
+    "quantity": 1,
+    "weight": 0.07,
+    "attachments": [
+      { "classname": "Saiga_Bttstck" },
+      { "classname": "PSO1Optic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_Saiga_8Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "M16A2",
+    "quantity": 1,
+    "weight": 0.12,
+    "attachments": [
+      { "classname": "M4_Suppressor" },
+      { "classname": "M9A1_Bayonet" },
+      { "classname": "Mag_STANAG_30Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "M16A2",
+    "quantity": 1,
+    "weight": 0.08,
+    "attachments": [
+      { "classname": "ImprovisedSuppressor" },
+      { "classname": "Mag_CMAG_20Rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "Deagle",
+    "quantity": 1,
+    "weight": 0.2,
+    "attachments": [
+      { "classname": "FNP45_MRDSOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "PistolSuppressor" },
+      { "classname": "Mag_Deagle_9rnd", "fill": 0.0 }
+    ]
+  },
+  {
+    "classname": "Deagle",
+    "quantity": 1,
+    "weight": 0.13,
+    "attachments": [
+      { "classname": "FNP45_MRDSOptic", "attachments": [ { "classname": "Battery9V" } ] },
+      { "classname": "Mag_Deagle_9rnd", "fill": 0.0 }
+    ]
+  },
+  { "classname": "AmmoBox_556x45_20Rnd", "quantity": 3, "weight": 0.8 },
+  { "classname": "AmmoBox_308Win_20Rnd", "quantity": 2, "weight": 0.6 },
+  { "classname": "AmmoBox_357_20Rnd", "quantity": 3, "weight": 0.7 },
+  { "classname": "AmmoBox_9x39_20Rnd", "quantity": 2, "weight": 0.5 },
+  { "classname": "AmmoBox_762x39_20Rnd", "quantity": 3, "weight": 0.8 },
+  { "classname": "Mag_MP5_30Rnd", "quantity": 2, "weight": 0.6 },
+  { "classname": "Mag_AKM_Drum75Rnd", "quantity": 1, "weight": 0.05 },
+  { "classname": "Mag_STANAG_60Rnd", "quantity": 1, "weight": 0.08 },
+  { "classname": "Mag_STANAG_30Rnd", "quantity": 2, "weight": 0.5 },
+  { "classname": "Mag_Aug_30Rnd", "quantity": 2, "weight": 0.4 },
+  { "classname": "PunchedCard", "quantity": 1, "weight": 0.25 },
+  { "classname": "Mag_FAMAS_25Rnd", "quantity": 2, "weight": 0.4 },
+  { "classname": "Mag_SVD_10Rnd", "quantity": 1, "weight": 0.2 },
+  { "classname": "Mag_Saiga_Drum20Rnd", "quantity": 1, "weight": 0.1 },
+  { "classname": "Mag_Saiga_8Rnd", "quantity": 2, "weight": 0.4 },
+  { "classname": "M4_Suppressor", "quantity": 1, "weight": 0.15 },
+  { "classname": "AK_Suppressor", "quantity": 1, "weight": 0.15 },
+  { "classname": "PistolSuppressor", "quantity": 1, "weight": 0.25 },
+  { "classname": "SewingKit", "quantity": 2, "weight": 0.6 },
+  { "classname": "LeatherSewingKit", "quantity": 2, "weight": 0.5 },
+  { "classname": "PlateCarrierVest_Black", "quantity": 1, "weight": 0.2 },
+  { "classname": "PlateCarrierVest_Camo", "quantity": 1, "weight": 0.1 },
+  { "classname": "BallisticHelmet_Black", "quantity": 1, "weight": 0.2 },
+  { "classname": "Zen_ArtillerySmokeGrenade", "quantity": 1, "weight": 0.35 },
+  { "classname": "Zen_ArtillerySmokeGrenadeChem", "quantity": 1, "weight": 0.35 },
+  { "classname": "ZenSkills_Book_Survival", "quantity": 2, "weight": 0.6 },
+  { "classname": "ZenSkills_Book_Crafting", "quantity": 2, "weight": 0.6 },
+  { "classname": "ZenSkills_Book_Hunting", "quantity": 2, "weight": 0.6 },
+  { "classname": "ZenSkills_Book_Gathering", "quantity": 2, "weight": 0.6 },
+  { "classname": "ItemPDA", "quantity": 2, "weight": 0.6 },
+  { "classname": "ArtDetect_Detector_Bear", "quantity": 1, "weight": 0.25 }
+]
